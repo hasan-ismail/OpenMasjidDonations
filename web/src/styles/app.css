@@ -153,3 +153,54 @@ h1, h2, h3, p { margin: 0; }
 .panel-ico { color: var(--color-primary); flex-shrink: 0; align-self: flex-start; margin-block-start: 0.1rem; }
 .admin-foot { margin-block-start: 1.5rem; text-align: center; font-size: 0.8rem; }
 .admin-foot a { display: inline-flex; align-items: center; gap: 0.2rem; }
+
+/* ── Cards / settings ─────────────────────────────────────────────────────── */
+.card-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-block-end: 1rem; }
+.card-head__main { min-width: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.8rem; }
+@media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; } }
+.input.mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.85rem; }
+
+/* Show/hide affix for the secret key */
+.input-affix { position: relative; display: flex; align-items: center; }
+.input-affix .input { padding-inline-end: 2.6rem; }
+.affix-btn {
+  position: absolute; inset-inline-end: 0.3rem; width: 2rem; height: 2rem; border: 0;
+  background: transparent; color: var(--color-ink-muted); display: grid; place-items: center; border-radius: 0.4rem;
+}
+.affix-btn:hover { color: var(--color-ink); background: var(--color-surface-hover); }
+
+/* Test/live badge + status pill */
+.badge {
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; padding: 0.15rem 0.5rem;
+  border-radius: 999px; text-transform: uppercase;
+}
+.badge--test { background: var(--color-gold-subtle); color: var(--color-gold); box-shadow: inset 0 0 0 1px var(--color-gold); }
+.badge--live { background: var(--color-primary-subtle); color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 600;
+  padding: 0.15rem 0.55rem; border-radius: 999px; color: var(--color-ink-muted);
+  background: var(--glass-bg-inset); box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.status-pill--ok { color: var(--color-success); }
+
+/* Instruction steps (Stripe how-to + collapsibles) */
+.steps-details { margin-block: 0.4rem 1rem; border-radius: var(--radius-button); }
+.steps-details > summary {
+  cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--color-primary);
+  padding: 0.5rem 0; list-style: revert; user-select: none;
+}
+.steps-details > summary:hover { color: var(--color-primary-hover); }
+.steps {
+  margin: 0.4rem 0 0.2rem; padding-inline-start: 1.3rem; display: flex; flex-direction: column; gap: 0.5rem;
+  font-size: 0.9rem; line-height: 1.5; color: var(--color-ink);
+}
+.steps li { padding-inline-start: 0.2rem; }
+.steps code, .input.mono::placeholder {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+.steps code {
+  font-size: 0.82em; padding: 0.05rem 0.3rem; border-radius: 0.3rem;
+  background: var(--glass-bg-inset); box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.steps a { display: inline-flex; align-items: center; gap: 0.15rem; }

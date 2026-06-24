@@ -54,3 +54,55 @@ export const logout = () => request<{ ok: true }>('/api/logout', { method: 'POST
 
 export const sendTestNotification = () =>
   request<NotifyTestResult>('/api/admin/notify-test', { method: 'POST' });
+
+// ── Settings (masjid details + Stripe config + onboarding) ──────────────────
+
+export interface MasjidProfile {
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  website: string;
+  currency: string;
+}
+
+export type StripeMode = 'test' | 'live' | 'unknown';
+
+/** The non-secret view of the Stripe config (the only thing the server returns). */
+export interface StripeStatus {
+  publishableKey: string;
+  hasSecretKey: boolean;
+  hasWebhookSecret: boolean;
+  mode: StripeMode;
+  configured: boolean;
+  keysMismatch: boolean;
+}
+
+export interface Settings {
+  masjid: MasjidProfile;
+  stripe: StripeStatus;
+  onboarded: boolean;
+}
+
+export interface VerifyResult {
+  ok: boolean;
+  mode?: StripeMode;
+  message?: string;
+}
+
+export type SaveStripeResult = StripeStatus & { verify?: VerifyResult };
+
+export const getSettings = () => request<Settings>('/api/settings');
+
+export const saveMasjid = (patch: Partial<MasjidProfile>) =>
+  request<MasjidProfile>('/api/settings/masjid', { method: 'PUT', body: JSON.stringify(patch) });
+
+/** Only send the secret/webhook keys when the admin actually typed one (omit to
+ *  keep the saved value; '' to clear). The secret key is never returned. */
+export const saveStripe = (patch: { publishableKey?: string; secretKey?: string; webhookSecret?: string }) =>
+  request<SaveStripeResult>('/api/settings/stripe', { method: 'PUT', body: JSON.stringify(patch) });
+
+export const completeOnboarding = () =>
+  request<{ ok: true }>('/api/settings/complete-onboarding', { method: 'POST' });
+
+export const testStripe = () => request<VerifyResult>('/api/admin/stripe-test', { method: 'POST' });

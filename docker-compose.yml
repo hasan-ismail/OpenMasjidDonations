@@ -8,7 +8,7 @@
 # optionally pre-fill Stripe keys via the install settings instead.
 services:
   app:
-    image: ghcr.io/hasan-ismail/openmasjiddonations:0.1.0
+    image: ghcr.io/hasan-ismail/openmasjiddonations:0.2.0
     restart: unless-stopped
     environment:
       PORT: "8080"

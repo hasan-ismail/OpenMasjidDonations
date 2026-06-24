@@ -79,9 +79,9 @@ must not be renamed.
 
 ## Build order (vertical slices)
 
-1. **Scaffold** (this slice): boots, themed shell, `/healthz`. ✅
-2. Platform SSO + theme + local-password fallback.
-3. Admin Payments screen + Stripe config (env + in-app), test-mode badge.
+1. **Scaffold**: boots, themed shell, `/healthz`. ✅
+2. **Platform SSO + theme + local-password fallback** (Fabric: SSO, notifications, appearance). ✅
+3. **Guided first-run onboarding + Stripe/masjid config** (env + in-app, test-mode badge, verify, "not set up yet" states). ✅
 4. Appeals model + admin CRUD (rich content + image upload).
 5. Public donation page: preset/custom amounts, Payment Element, one-time
    PaymentIntent, retrieve-on-return, thank-you, donation recorded.

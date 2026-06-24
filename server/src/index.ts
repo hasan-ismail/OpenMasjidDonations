@@ -15,6 +15,14 @@ import { Store } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
 import { notify, platformUser } from './fabric';
 import { LoginLimiter } from './rateLimit';
+import {
+  looksLikePublishable,
+  looksLikeSecret,
+  looksLikeWebhookSecret,
+  publicStripeStatus,
+  stripeConfigured,
+  verifySecretKey,
+} from './stripe';
 
 const log = makeLog('main');
 
@@ -57,6 +65,8 @@ async function main(): Promise<void> {
       version: config.version,
       embedded: ssoConfigured(),
       omosBase: config.omosBaseUrl, // '' when standalone
+      // Whether the public donation page can take payments yet (no secrets here).
+      donationsConfigured: stripeConfigured(store.getStripe()),
     },
   }));
 
@@ -146,6 +156,61 @@ async function main(): Promise<void> {
     return {
       data: { baseUrlSet: !!base, hasSecret, baseUrlLoopback: LOOPBACK_RE.test(base), appId: config.omosAppId, ...result },
     };
+  });
+
+  // ── Settings: masjid details + Stripe config + onboarding ───────────────────
+  // GET returns the non-secret view (publishable key + booleans for the secrets).
+  app.get('/api/settings', { preHandler: requireAdmin }, async () => ({
+    data: { masjid: store.getMasjid(), stripe: publicStripeStatus(store.getStripe()), onboarded: store.isOnboarded() },
+  }));
+
+  const MasjidBody = z.object({
+    name: z.string().max(120).optional(),
+    address: z.string().max(400).optional(),
+    email: z.string().max(200).optional(),
+    phone: z.string().max(60).optional(),
+    website: z.string().max(200).optional(),
+    currency: z.string().max(8).optional(),
+  });
+  app.put('/api/settings/masjid', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = MasjidBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the details and try again.' });
+    return { data: store.setMasjid(parsed.data) };
+  });
+
+  // Save Stripe keys. An omitted key is left as-is; '' clears it. The secret key is
+  // stored server-side and NEVER echoed back. If a secret is set we verify it with
+  // Stripe (best-effort) so the admin gets immediate confirmation.
+  const StripeBody = z.object({
+    publishableKey: z.string().max(255).optional(),
+    secretKey: z.string().max(255).optional(),
+    webhookSecret: z.string().max(255).optional(),
+  });
+  app.put('/api/settings/stripe', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = StripeBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the keys and try again.' });
+    const p = parsed.data;
+    if (p.publishableKey && !looksLikePublishable(p.publishableKey))
+      return reply.code(400).send({ error: 'The publishable key should start with pk_.' });
+    if (p.secretKey && !looksLikeSecret(p.secretKey))
+      return reply.code(400).send({ error: 'The secret key should start with sk_.' });
+    if (p.webhookSecret && !looksLikeWebhookSecret(p.webhookSecret))
+      return reply.code(400).send({ error: 'The webhook secret should start with whsec_.' });
+    const cfg = store.setStripe(p);
+    const verify = cfg.secretKey ? await verifySecretKey(cfg.secretKey) : undefined;
+    return { data: { ...publicStripeStatus(cfg), verify } };
+  });
+
+  app.post('/api/settings/complete-onboarding', { preHandler: requireAdmin }, async () => {
+    store.setOnboarded();
+    return { data: { ok: true } };
+  });
+
+  // Re-check the stored secret key against Stripe on demand.
+  app.post('/api/admin/stripe-test', { preHandler: requireAdmin }, async () => {
+    const cfg = store.getStripe();
+    if (!cfg.secretKey) return { data: { ok: false, message: 'Add your Stripe secret key first.' } };
+    return { data: await verifySecretKey(cfg.secretKey) };
   });
 
   // ── Static web app (built by Vite into ./public) ────────────────────────────

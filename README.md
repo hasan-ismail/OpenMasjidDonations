@@ -10,10 +10,11 @@ appeals, amounts, theme, Stripe keys, and a donations log — from a polished,
 login-protected panel. It runs as **one container** on a cheap mini-PC or a
 Raspberry Pi, on your masjid's own network.
 
-> **Status:** early development. **Slice 1** (this commit) is the scaffold: the
-> container boots, serves a themed shell and a `/healthz` check, and matches the
-> OpenMasjidOS look. Stripe, appeals, and the admin panel arrive in the slices that
-> follow (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
+> **Status:** early development (v0.2.0). Working so far: the themed app + `/healthz`,
+> OpenMasjidOS single sign-on with a local admin-password fallback, the notifications
+> relay, and a **guided first-run setup** — create your admin password, then enter
+> your masjid details and Stripe keys (with step-by-step instructions). Still to come:
+> appeals and the public donate flow (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
 
 ---
 

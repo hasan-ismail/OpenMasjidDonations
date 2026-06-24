@@ -47,14 +47,25 @@ export const config = {
    *  fails closed. It is a CREDENTIAL — never log or expose it. */
   omosAppSecret: env('OPENMASJID_APP_SECRET', ''),
 
-  /** Stripe — seeded from install settings if provided. The data volume becomes the
-   *  source of truth once the admin sets/rotates keys in-app (a later slice). The
-   *  SECRET key is server-side only and must never reach the browser. */
+  /** First-run seed values. Install settings + any platform-provided MASJID_* vars
+   *  seed defaults ONLY; once the admin saves a value in-app it persists to the data
+   *  volume and takes precedence (see store.ts). The Stripe SECRET key is read here
+   *  but is server-side only and must never reach the browser or the logs. */
   seed: {
-    stripePublishableKey: env('STRIPE_PUBLISHABLE_KEY', ''),
-    stripeSecretKey: env('STRIPE_SECRET_KEY', ''),
-    stripeWebhookSecret: env('STRIPE_WEBHOOK_SECRET', ''),
-    currency: env('CURRENCY', '').toUpperCase(),
+    masjid: {
+      name: env('MASJID_NAME', ''),
+      address: env('MASJID_ADDRESS', ''),
+      email: env('MASJID_EMAIL', ''),
+      phone: env('MASJID_PHONE', ''),
+      website: env('MASJID_WEBSITE', ''),
+    },
+    // CURRENCY install setting wins; else the platform's MASJID_CURRENCY; else GBP.
+    currency: (env('CURRENCY', '') || env('MASJID_CURRENCY', '') || 'GBP').toUpperCase(),
+    stripe: {
+      publishableKey: env('STRIPE_PUBLISHABLE_KEY', ''),
+      secretKey: env('STRIPE_SECRET_KEY', ''),
+      webhookSecret: env('STRIPE_WEBHOOK_SECRET', ''),
+    },
   },
 };
 

@@ -14,9 +14,34 @@ import type { Cred } from './auth';
 
 const log = makeLog('store');
 
+/** Drop undefined values so a partial update never overwrites a field with nothing. */
+function clean<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
 export interface Admin extends Cred {
   name?: string;
   createdAt: string;
+}
+
+/** Masjid branding/details — seeded from MASJID_* / install settings, then owned by
+ *  the admin once edited in-app. Used for receipts, branding and the default
+ *  donation currency. */
+export interface MasjidProfile {
+  name: string;
+  address: string;
+  email: string;
+  phone: string;
+  website: string;
+  currency: string;
+}
+
+/** Stripe credentials. The SECRET key + webhook secret are server-side only and
+ *  must never be returned to the browser or logged. */
+export interface StripeConfig {
+  publishableKey: string;
+  secretKey: string;
+  webhookSecret: string;
 }
 
 export class Store {
@@ -81,6 +106,70 @@ export class Store {
   setAdmin(cred: Cred, name?: string): void {
     const admin: Admin = { ...cred, name: name || undefined, createdAt: new Date().toISOString() };
     this.setRaw('admin', JSON.stringify(admin));
+  }
+
+  private getJson<T>(key: string): Partial<T> {
+    const raw = this.getRaw(key);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Partial<T>;
+    } catch {
+      return {};
+    }
+  }
+
+  /** Masjid profile: stored values take precedence over the env seeds. */
+  getMasjid(): MasjidProfile {
+    const s = this.getJson<MasjidProfile>('masjid');
+    const seed = config.seed;
+    return {
+      name: s.name ?? seed.masjid.name,
+      address: s.address ?? seed.masjid.address,
+      email: s.email ?? seed.masjid.email,
+      phone: s.phone ?? seed.masjid.phone,
+      website: s.website ?? seed.masjid.website,
+      currency: (s.currency ?? seed.currency ?? 'GBP').toUpperCase() || 'GBP',
+    };
+  }
+
+  setMasjid(patch: Partial<MasjidProfile>): MasjidProfile {
+    const merged = { ...this.getMasjid(), ...clean(patch) };
+    if (merged.currency) merged.currency = merged.currency.toUpperCase();
+    this.setRaw('masjid', JSON.stringify(merged));
+    return merged;
+  }
+
+  /** Stripe config: stored values take precedence over the env seeds. Never return
+   *  the result of this to the browser — it contains the secret key. */
+  getStripe(): StripeConfig {
+    const s = this.getJson<StripeConfig>('stripe');
+    const seed = config.seed.stripe;
+    return {
+      publishableKey: s.publishableKey ?? seed.publishableKey,
+      secretKey: s.secretKey ?? seed.secretKey,
+      webhookSecret: s.webhookSecret ?? seed.webhookSecret,
+    };
+  }
+
+  /** Apply a partial update. A provided '' clears that key; an omitted key is left
+   *  untouched (so the admin can update one field without resending secrets). */
+  setStripe(patch: Partial<StripeConfig>): StripeConfig {
+    const current = this.getStripe();
+    const merged: StripeConfig = {
+      publishableKey: patch.publishableKey ?? current.publishableKey,
+      secretKey: patch.secretKey ?? current.secretKey,
+      webhookSecret: patch.webhookSecret ?? current.webhookSecret,
+    };
+    this.setRaw('stripe', JSON.stringify(merged));
+    return merged;
+  }
+
+  isOnboarded(): boolean {
+    return this.getRaw('onboarded') === '1';
+  }
+
+  setOnboarded(): void {
+    this.setRaw('onboarded', '1');
   }
 
   close(): void {
