@@ -24,8 +24,9 @@ export function App() {
     };
   }, []);
 
-  // Inherit the dashboard's live theme + wallpaper + accent while embedded.
-  useOmosAppearanceSync(info?.omosBase);
+  // Inherit the dashboard's live theme + wallpaper + accent while embedded (polled
+  // via our same-origin relay so it isn't mixed-content-blocked on our HTTPS page).
+  useOmosAppearanceSync(info?.embedded);
 
   const path = typeof location !== 'undefined' ? location.pathname.replace(/\/+$/, '') : '/';
   const campaign = parseCampaignPath(path);

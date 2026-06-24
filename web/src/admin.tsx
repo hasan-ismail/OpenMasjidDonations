@@ -167,7 +167,13 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
       <section className="glass panel">
         <div className="row-between">
           <div className="row"><ShieldCheck size={18} className="panel-ico" aria-hidden="true" /><span className="muted">{embedded ? 'Signed in with your OpenMasjidOS login.' : 'Signed in with your local admin password.'}</span></div>
-          <button className="btn btn--ghost btn--sm" onClick={signOut} disabled={signingOut}>{signingOut ? <span className="spinner" /> : <LogOut size={15} />} Sign out</button>
+          {embedded ? (
+            // Under SSO the platform owns the session — clearing our local cookie is
+            // instantly undone by the omos_session cookie, so point to the dashboard.
+            <span className="hint">Sign out from your OpenMasjidOS dashboard</span>
+          ) : (
+            <button className="btn btn--ghost btn--sm" onClick={signOut} disabled={signingOut}>{signingOut ? <span className="spinner" /> : <LogOut size={15} />} Sign out</button>
+          )}
         </div>
       </section>
       <p className="admin-foot faint">OpenMasjid Donations v{info?.version ?? __APP_VERSION__} · <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Source code <ExternalLink size={12} /></a> · AGPL-3.0</p>

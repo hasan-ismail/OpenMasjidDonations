@@ -178,33 +178,35 @@ export function usePrefs(): Prefs {
   return useSyncExternalStore(prefsStore.subscribe, prefsStore.get, prefsStore.get);
 }
 
-/** One-shot pull of OpenMasjidOS's current appearance (the public, CORS-enabled
- *  A2 endpoint). Only theme + wallpaper are read. */
-export async function fetchOmosAppearance(omosBase: string): Promise<void> {
-  if (!omosBase) return;
+/** One-shot pull of OpenMasjidOS's current appearance, via our OWN same-origin relay
+ *  (GET /api/public/appearance) — our page is HTTPS but the platform's appearance
+ *  endpoint is HTTP, so a direct cross-origin fetch would be mixed-content blocked.
+ *  The server fetches the platform side. Only theme + wallpaper + accent are applied. */
+export async function fetchOmosAppearance(): Promise<void> {
   try {
-    const res = await fetch(`${omosBase}/api/public/appearance`, { credentials: 'omit' });
+    const res = await fetch('/api/public/appearance', { credentials: 'omit' });
     if (!res.ok) return;
     if (!prefsStore.get().followOmos) return;
     prefsStore.patch(appearancePatch((await res.json()) as OmosAppearance));
   } catch {
-    /* platform offline or cross-origin blocked — keep the current look */
+    /* platform offline — keep the current look (the #omos fragment already themed us) */
   }
 }
 
-/** While "follow OpenMasjidOS" is on, keep theme + wallpaper in sync with the
- *  dashboard (poll periodically and whenever the page regains focus). */
-export function useOmosAppearanceSync(omosBase: string | undefined): void {
+/** While embedded under OpenMasjidOS and "follow" is on, keep theme + wallpaper +
+ *  accent in sync with the dashboard (poll periodically and whenever the page regains
+ *  focus). The one-shot #omos fragment is the primary hand-off; this is live sync. */
+export function useOmosAppearanceSync(embedded: boolean | undefined): void {
   const { followOmos } = usePrefs();
   useEffect(() => {
-    if (!omosBase || !followOmos) return;
-    void fetchOmosAppearance(omosBase);
-    const iv = window.setInterval(() => void fetchOmosAppearance(omosBase), 45_000);
-    const onFocus = () => void fetchOmosAppearance(omosBase);
+    if (!embedded || !followOmos) return;
+    void fetchOmosAppearance();
+    const iv = window.setInterval(() => void fetchOmosAppearance(), 45_000);
+    const onFocus = () => void fetchOmosAppearance();
     window.addEventListener('focus', onFocus);
     return () => {
       window.clearInterval(iv);
       window.removeEventListener('focus', onFocus);
     };
-  }, [omosBase, followOmos]);
+  }, [embedded, followOmos]);
 }

@@ -97,6 +97,28 @@ async function main(): Promise<void> {
     },
   }));
 
+  // ── Same-origin appearance relay ────────────────────────────────────────────
+  // Our page is served over HTTPS (the platform's per-app TLS proxy, because our
+  // manifest sets `https: true` for Stripe). The platform's appearance endpoint is
+  // plain HTTP, so a direct browser fetch would be blocked as mixed content. The web
+  // polls us (same origin) and we fetch the platform server-to-server. Returns the
+  // platform's { v, theme, wallpaper, wallpaperImage, accent, lang } or {} (no secrets).
+  app.get('/api/public/appearance', async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    const base = config.omosBaseUrl;
+    if (!base) return {};
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(`${base}/api/public/appearance`, { signal: ctrl.signal, redirect: 'error' });
+      clearTimeout(t);
+      if (!res.ok) return {};
+      return (await res.json()) as Record<string, unknown>;
+    } catch {
+      return {}; // platform offline / unreachable — the #omos fragment still themed us
+    }
+  });
+
   // ── Session: who am I? Also performs the SSO upgrade. ───────────────────────
   // If not already signed in here but the visitor carries a valid OpenMasjidOS
   // session, we confirm it with the platform (server→server) and mint a short-lived
