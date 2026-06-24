@@ -72,8 +72,16 @@ export interface MasjidProfile {
 
 export type StripeMode = 'test' | 'live' | 'unknown';
 
-/** The non-secret view of the Stripe config (the only thing the server returns). */
-export interface StripeStatus {
+export interface VerifyResult {
+  ok: boolean;
+  mode?: StripeMode;
+  message?: string;
+}
+
+/** Non-secret view of a Stripe account (the only thing the server returns). */
+export interface StripeAccount {
+  id: string;
+  label: string;
   publishableKey: string;
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
@@ -81,32 +89,139 @@ export interface StripeStatus {
   configured: boolean;
   keysMismatch: boolean;
 }
+export type SaveAccountResult = StripeAccount & { verify?: VerifyResult };
 
 export interface Settings {
   masjid: MasjidProfile;
-  stripe: StripeStatus;
+  stripeAccounts: StripeAccount[];
   onboarded: boolean;
 }
 
-export interface VerifyResult {
-  ok: boolean;
-  mode?: StripeMode;
-  message?: string;
+export interface Campaign {
+  id: string;
+  slug: string;
+  token: string;
+  title: string;
+  description: string;
+  coverImage: string;
+  presetAmounts: number[]; // major units
+  allowCustom: boolean;
+  minAmount: number;
+  maxAmount: number;
+  stripeAccountId: string;
+  coverFees: boolean;
+  giftAid: boolean;
+  goalAmount: number;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+  raised: number;
+  currency: string;
+  url: string;
+}
+export type CampaignInput = Partial<Omit<Campaign, 'id' | 'token' | 'createdAt' | 'raised' | 'currency' | 'url' | 'sortOrder'>>;
+
+export interface Donation {
+  id: string;
+  campaignId: string;
+  campaignTitle: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  donorName: string;
+  donorEmail: string;
+  coverFees: boolean;
+  giftAid: boolean;
+  paymentIntentId: string;
+  createdAt: string;
+}
+export interface DonationsResult {
+  donations: Donation[];
+  stats: { totalRaised: number; count: number; currency: string };
 }
 
-export type SaveStripeResult = StripeStatus & { verify?: VerifyResult };
-
+// ── Settings + accounts (admin) ─────────────────────────────────────────────
 export const getSettings = () => request<Settings>('/api/settings');
-
 export const saveMasjid = (patch: Partial<MasjidProfile>) =>
   request<MasjidProfile>('/api/settings/masjid', { method: 'PUT', body: JSON.stringify(patch) });
+export const completeOnboarding = () => request<{ ok: true }>('/api/settings/complete-onboarding', { method: 'POST' });
 
-/** Only send the secret/webhook keys when the admin actually typed one (omit to
- *  keep the saved value; '' to clear). The secret key is never returned. */
-export const saveStripe = (patch: { publishableKey?: string; secretKey?: string; webhookSecret?: string }) =>
-  request<SaveStripeResult>('/api/settings/stripe', { method: 'PUT', body: JSON.stringify(patch) });
+export type AccountInput = { label?: string; publishableKey?: string; secretKey?: string; webhookSecret?: string };
+export const listAccounts = () => request<StripeAccount[]>('/api/admin/stripe-accounts');
+export const createAccount = (body: AccountInput) =>
+  request<SaveAccountResult>('/api/admin/stripe-accounts', { method: 'POST', body: JSON.stringify(body) });
+export const updateAccount = (id: string, body: AccountInput) =>
+  request<SaveAccountResult>(`/api/admin/stripe-accounts/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const deleteAccount = (id: string) =>
+  request<{ ok: true }>(`/api/admin/stripe-accounts/${id}`, { method: 'DELETE' });
+export const testAccount = (id: string) =>
+  request<VerifyResult>(`/api/admin/stripe-accounts/${id}/test`, { method: 'POST' });
 
-export const completeOnboarding = () =>
-  request<{ ok: true }>('/api/settings/complete-onboarding', { method: 'POST' });
+// ── Campaigns (admin) ───────────────────────────────────────────────────────
+export const listCampaigns = () => request<Campaign[]>('/api/admin/campaigns');
+export const createCampaign = (body: CampaignInput) =>
+  request<Campaign>('/api/admin/campaigns', { method: 'POST', body: JSON.stringify(body) });
+export const updateCampaign = (id: string, body: CampaignInput) =>
+  request<Campaign>(`/api/admin/campaigns/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+export const deleteCampaign = (id: string) =>
+  request<{ ok: true }>(`/api/admin/campaigns/${id}`, { method: 'DELETE' });
 
-export const testStripe = () => request<VerifyResult>('/api/admin/stripe-test', { method: 'POST' });
+// ── Donations (admin) ───────────────────────────────────────────────────────
+export const getDonations = () => request<DonationsResult>('/api/admin/donations');
+
+// ── Public donation flow ────────────────────────────────────────────────────
+export interface PublicCampaign {
+  slug: string;
+  token: string;
+  title: string;
+  description: string;
+  coverImage: string;
+  presetAmounts: number[];
+  allowCustom: boolean;
+  minAmount: number;
+  maxAmount: number;
+  coverFees: boolean;
+  giftAid: boolean;
+  goalAmount: number;
+  raised: number;
+  currency: string;
+  masjidName: string;
+  publishableKey: string;
+  ready: boolean;
+}
+export interface IntentResponse {
+  clientSecret: string;
+  publishableKey: string;
+  amount: number;
+  currency: string;
+}
+export interface ConfirmResponse {
+  status: string;
+  succeeded: boolean;
+  amount: number;
+  currency: string;
+  campaignTitle: string;
+  donorName: string;
+}
+export const getPublicCampaign = (slug: string, token: string) =>
+  request<PublicCampaign>(`/api/public/campaign/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`);
+export const createIntent = (
+  slug: string,
+  token: string,
+  body: { amount: number; coverFees?: boolean; giftAid?: boolean; donorName?: string; donorEmail?: string },
+) =>
+  request<IntentResponse>(`/api/public/campaign/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/intent`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const confirmDonation = (body: { paymentIntentId: string; slug: string; token: string }) =>
+  request<ConfirmResponse>('/api/public/confirm', { method: 'POST', body: JSON.stringify(body) });
+
+/** Format a major-unit amount in the given currency, e.g. 50 GBP → "£50.00". */
+export function money(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}

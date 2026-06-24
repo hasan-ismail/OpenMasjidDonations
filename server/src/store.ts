@@ -44,6 +44,76 @@ export interface StripeConfig {
   webhookSecret: string;
 }
 
+/** A Stripe account the masjid owns. Multiple are supported so e.g. Zakat and
+ *  general funds can settle to different accounts. Secrets are server-side only. */
+export interface StripeAccount extends StripeConfig {
+  id: string;
+  label: string;
+  createdAt: string;
+}
+
+/** A donation page/appeal. The public URL is /c/<slug>-<token>; the token is an
+ *  unguessable suffix so links can be shared without exposing all campaigns. */
+export interface Campaign {
+  id: string;
+  slug: string;
+  token: string;
+  title: string;
+  description: string;
+  coverImage: string;
+  /** Suggested amounts, in MINOR currency units (e.g. pence). */
+  presetAmounts: number[];
+  allowCustom: boolean;
+  /** Min/max custom amount in minor units. maxAmount 0 = no max. */
+  minAmount: number;
+  maxAmount: number;
+  stripeAccountId: string;
+  coverFees: boolean;
+  giftAid: boolean;
+  /** Goal in minor units, 0 = no goal/progress bar. */
+  goalAmount: number;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface Donation {
+  id: string;
+  campaignId: string;
+  stripeAccountId: string;
+  /** Amount actually charged, in minor units (includes the fee top-up if covered). */
+  amount: number;
+  currency: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  donorName: string;
+  donorEmail: string;
+  coverFees: boolean;
+  giftAid: boolean;
+  paymentIntentId: string;
+  createdAt: string;
+}
+
+/** Short, URL-safe id with a kind prefix, e.g. "cmp_a1b2c3d4". */
+export function rid(prefix: string): string {
+  return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
+}
+
+/** An unguessable, lowercase, URL-safe token for a campaign's public link. */
+export function campaignToken(): string {
+  return crypto.randomBytes(5).toString('hex'); // 10 hex chars
+}
+
+/** Make a URL-safe slug from a title (kebab-case, alnum + dashes). */
+export function slugify(s: string): string {
+  const out = s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return out || 'appeal';
+}
+
 export class Store {
   private readonly db: Database.Database;
   private cachedSecret: Buffer | null = null;
@@ -54,14 +124,64 @@ export class Store {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     // A small key/value table for singletons (admin credential, signing secret,
-    // and — in later slices — Stripe config). Structured data gets its own tables.
-    this.db.exec(`CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
-    // Tighten file perms where the OS supports it (the secret + admin hash live here).
+    // masjid profile, onboarding flag). Structured data gets its own tables.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+      CREATE TABLE IF NOT EXISTS stripe_accounts (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        publishable_key TEXT NOT NULL DEFAULT '',
+        secret_key TEXT NOT NULL DEFAULT '',
+        webhook_secret TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        token TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        cover_image TEXT NOT NULL DEFAULT '',
+        preset_amounts TEXT NOT NULL DEFAULT '[]',
+        allow_custom INTEGER NOT NULL DEFAULT 1,
+        min_amount INTEGER NOT NULL DEFAULT 100,
+        max_amount INTEGER NOT NULL DEFAULT 0,
+        stripe_account_id TEXT NOT NULL,
+        cover_fees INTEGER NOT NULL DEFAULT 0,
+        gift_aid INTEGER NOT NULL DEFAULT 0,
+        goal_amount INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_slug_token ON campaigns(slug, token);
+
+      CREATE TABLE IF NOT EXISTS donations (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        stripe_account_id TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        donor_name TEXT NOT NULL DEFAULT '',
+        donor_email TEXT NOT NULL DEFAULT '',
+        cover_fees INTEGER NOT NULL DEFAULT 0,
+        gift_aid INTEGER NOT NULL DEFAULT 0,
+        payment_intent_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_donations_campaign ON donations(campaign_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_donations_pi ON donations(payment_intent_id);
+    `);
+    // Tighten file perms where the OS supports it (secrets + admin hash live here).
     try {
       fs.chmodSync(dbPath, 0o600);
     } catch {
       /* best-effort (e.g. Windows dev) */
     }
+    this.migrateLegacyStripe();
     log.info(`data store ready at ${dbPath}`);
   }
 
@@ -170,6 +290,253 @@ export class Store {
 
   setOnboarded(): void {
     this.setRaw('onboarded', '1');
+  }
+
+  // ── Legacy migration: fold the old single Stripe config into an account ─────
+  private migrateLegacyStripe(): void {
+    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM stripe_accounts').get() as { n: number }).n;
+    if (n > 0) return;
+    const legacy = this.getStripe();
+    if (legacy.publishableKey || legacy.secretKey) {
+      this.createStripeAccount({ label: 'Main account', ...legacy });
+      log.info('migrated the existing Stripe config into a default account');
+    }
+  }
+
+  // ── Stripe accounts ─────────────────────────────────────────────────────────
+  private rowToAccount(r: Record<string, unknown>): StripeAccount {
+    return {
+      id: String(r.id),
+      label: String(r.label),
+      publishableKey: String(r.publishable_key),
+      secretKey: String(r.secret_key),
+      webhookSecret: String(r.webhook_secret),
+      createdAt: String(r.created_at),
+    };
+  }
+
+  listStripeAccounts(): StripeAccount[] {
+    return (this.db.prepare('SELECT * FROM stripe_accounts ORDER BY created_at').all() as Record<string, unknown>[]).map((r) =>
+      this.rowToAccount(r),
+    );
+  }
+
+  getStripeAccount(id: string): StripeAccount | null {
+    const r = this.db.prepare('SELECT * FROM stripe_accounts WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? this.rowToAccount(r) : null;
+  }
+
+  createStripeAccount(input: { label: string } & Partial<StripeConfig>): StripeAccount {
+    const acct: StripeAccount = {
+      id: rid('acct'),
+      label: input.label || 'Stripe account',
+      publishableKey: input.publishableKey ?? '',
+      secretKey: input.secretKey ?? '',
+      webhookSecret: input.webhookSecret ?? '',
+      createdAt: new Date().toISOString(),
+    };
+    this.db
+      .prepare(
+        `INSERT INTO stripe_accounts (id, label, publishable_key, secret_key, webhook_secret, created_at)
+         VALUES (@id, @label, @publishableKey, @secretKey, @webhookSecret, @createdAt)`,
+      )
+      .run(acct);
+    return acct;
+  }
+
+  /** Partial update; '' clears a key, omitted leaves it (so secrets aren't resent). */
+  updateStripeAccount(id: string, patch: Partial<Omit<StripeAccount, 'id' | 'createdAt'>>): StripeAccount | null {
+    const cur = this.getStripeAccount(id);
+    if (!cur) return null;
+    const next: StripeAccount = { ...cur, ...clean(patch) };
+    this.db
+      .prepare(
+        `UPDATE stripe_accounts SET label=@label, publishable_key=@publishableKey, secret_key=@secretKey,
+         webhook_secret=@webhookSecret WHERE id=@id`,
+      )
+      .run(next);
+    return next;
+  }
+
+  campaignsForAccount(id: string): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM campaigns WHERE stripe_account_id = ?').get(id) as { n: number }).n;
+  }
+
+  deleteStripeAccount(id: string): { ok: boolean; reason?: string } {
+    if (this.campaignsForAccount(id) > 0) return { ok: false, reason: 'in-use' };
+    this.db.prepare('DELETE FROM stripe_accounts WHERE id = ?').run(id);
+    return { ok: true };
+  }
+
+  // ── Campaigns ─────────────────────────────────────────────────────────────
+  private rowToCampaign(r: Record<string, unknown>): Campaign {
+    let presets: number[] = [];
+    try {
+      presets = JSON.parse(String(r.preset_amounts)) as number[];
+    } catch {
+      /* keep [] */
+    }
+    return {
+      id: String(r.id),
+      slug: String(r.slug),
+      token: String(r.token),
+      title: String(r.title),
+      description: String(r.description),
+      coverImage: String(r.cover_image),
+      presetAmounts: Array.isArray(presets) ? presets : [],
+      allowCustom: !!r.allow_custom,
+      minAmount: Number(r.min_amount),
+      maxAmount: Number(r.max_amount),
+      stripeAccountId: String(r.stripe_account_id),
+      coverFees: !!r.cover_fees,
+      giftAid: !!r.gift_aid,
+      goalAmount: Number(r.goal_amount),
+      active: !!r.active,
+      sortOrder: Number(r.sort_order),
+      createdAt: String(r.created_at),
+    };
+  }
+
+  private writeCampaign(c: Campaign): void {
+    this.db
+      .prepare(
+        `INSERT INTO campaigns
+          (id, slug, token, title, description, cover_image, preset_amounts, allow_custom, min_amount,
+           max_amount, stripe_account_id, cover_fees, gift_aid, goal_amount, active, sort_order, created_at)
+         VALUES
+          (@id, @slug, @token, @title, @description, @coverImage, @presetAmounts, @allowCustom, @minAmount,
+           @maxAmount, @stripeAccountId, @coverFees, @giftAid, @goalAmount, @active, @sortOrder, @createdAt)
+         ON CONFLICT(id) DO UPDATE SET
+           slug=excluded.slug, title=excluded.title, description=excluded.description, cover_image=excluded.cover_image,
+           preset_amounts=excluded.preset_amounts, allow_custom=excluded.allow_custom, min_amount=excluded.min_amount,
+           max_amount=excluded.max_amount, stripe_account_id=excluded.stripe_account_id, cover_fees=excluded.cover_fees,
+           gift_aid=excluded.gift_aid, goal_amount=excluded.goal_amount, active=excluded.active, sort_order=excluded.sort_order`,
+      )
+      .run({
+        ...c,
+        presetAmounts: JSON.stringify(c.presetAmounts),
+        allowCustom: c.allowCustom ? 1 : 0,
+        coverFees: c.coverFees ? 1 : 0,
+        giftAid: c.giftAid ? 1 : 0,
+        active: c.active ? 1 : 0,
+      });
+  }
+
+  listCampaigns(): Campaign[] {
+    return (this.db.prepare('SELECT * FROM campaigns ORDER BY sort_order, created_at').all() as Record<string, unknown>[]).map((r) =>
+      this.rowToCampaign(r),
+    );
+  }
+
+  getCampaign(id: string): Campaign | null {
+    const r = this.db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? this.rowToCampaign(r) : null;
+  }
+
+  getCampaignBySlugToken(slug: string, token: string): Campaign | null {
+    const r = this.db.prepare('SELECT * FROM campaigns WHERE slug = ? AND token = ?').get(slug, token) as
+      | Record<string, unknown>
+      | undefined;
+    return r ? this.rowToCampaign(r) : null;
+  }
+
+  createCampaign(input: Partial<Campaign> & { title: string; stripeAccountId: string }): Campaign {
+    const maxSort = (this.db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM campaigns').get() as { m: number }).m;
+    const c: Campaign = {
+      id: rid('cmp'),
+      slug: input.slug || slugify(input.title),
+      token: campaignToken(),
+      title: input.title,
+      description: input.description ?? '',
+      coverImage: input.coverImage ?? '',
+      presetAmounts: input.presetAmounts ?? [],
+      allowCustom: input.allowCustom ?? true,
+      minAmount: input.minAmount ?? 100,
+      maxAmount: input.maxAmount ?? 0,
+      stripeAccountId: input.stripeAccountId,
+      coverFees: input.coverFees ?? false,
+      giftAid: input.giftAid ?? false,
+      goalAmount: input.goalAmount ?? 0,
+      active: input.active ?? true,
+      sortOrder: maxSort + 1,
+      createdAt: new Date().toISOString(),
+    };
+    this.writeCampaign(c);
+    return c;
+  }
+
+  updateCampaign(id: string, patch: Partial<Campaign>): Campaign | null {
+    const cur = this.getCampaign(id);
+    if (!cur) return null;
+    // id/token/createdAt are immutable.
+    const next: Campaign = { ...cur, ...clean(patch), id: cur.id, token: cur.token, createdAt: cur.createdAt };
+    this.writeCampaign(next);
+    return next;
+  }
+
+  deleteCampaign(id: string): void {
+    this.db.prepare('DELETE FROM campaigns WHERE id = ?').run(id);
+  }
+
+  // ── Donations ───────────────────────────────────────────────────────────────
+  private rowToDonation(r: Record<string, unknown>): Donation {
+    return {
+      id: String(r.id),
+      campaignId: String(r.campaign_id),
+      stripeAccountId: String(r.stripe_account_id),
+      amount: Number(r.amount),
+      currency: String(r.currency),
+      status: String(r.status) as Donation['status'],
+      donorName: String(r.donor_name),
+      donorEmail: String(r.donor_email),
+      coverFees: !!r.cover_fees,
+      giftAid: !!r.gift_aid,
+      paymentIntentId: String(r.payment_intent_id),
+      createdAt: String(r.created_at),
+    };
+  }
+
+  createDonation(input: Omit<Donation, 'id' | 'createdAt' | 'status'> & { status?: Donation['status'] }): Donation {
+    const d: Donation = { id: rid('don'), status: input.status ?? 'pending', createdAt: new Date().toISOString(), ...input };
+    this.db
+      .prepare(
+        `INSERT INTO donations
+          (id, campaign_id, stripe_account_id, amount, currency, status, donor_name, donor_email, cover_fees, gift_aid, payment_intent_id, created_at)
+         VALUES
+          (@id, @campaignId, @stripeAccountId, @amount, @currency, @status, @donorName, @donorEmail, @coverFees, @giftAid, @paymentIntentId, @createdAt)`,
+      )
+      .run({ ...d, coverFees: d.coverFees ? 1 : 0, giftAid: d.giftAid ? 1 : 0 });
+    return d;
+  }
+
+  getDonationByPaymentIntent(pi: string): Donation | null {
+    const r = this.db.prepare('SELECT * FROM donations WHERE payment_intent_id = ?').get(pi) as Record<string, unknown> | undefined;
+    return r ? this.rowToDonation(r) : null;
+  }
+
+  /** Mark a donation's outcome (idempotent — safe to call repeatedly on confirm). */
+  markDonation(pi: string, status: Donation['status'], donorName?: string, donorEmail?: string): Donation | null {
+    const cur = this.getDonationByPaymentIntent(pi);
+    if (!cur) return null;
+    this.db
+      .prepare(`UPDATE donations SET status=@status, donor_name=@donorName, donor_email=@donorEmail WHERE payment_intent_id=@pi`)
+      .run({ pi, status, donorName: donorName ?? cur.donorName, donorEmail: donorEmail ?? cur.donorEmail });
+    return this.getDonationByPaymentIntent(pi);
+  }
+
+  listDonations(): Donation[] {
+    return (this.db.prepare('SELECT * FROM donations ORDER BY created_at DESC').all() as Record<string, unknown>[]).map((r) =>
+      this.rowToDonation(r),
+    );
+  }
+
+  /** Total raised (succeeded) for a campaign, in minor units. */
+  raisedForCampaign(campaignId: string): number {
+    return (
+      this.db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM donations WHERE campaign_id = ? AND status = 'succeeded'`).get(campaignId) as {
+        s: number;
+      }
+    ).s;
   }
 
   close(): void {

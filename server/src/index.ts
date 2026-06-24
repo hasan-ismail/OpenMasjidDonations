@@ -5,28 +5,50 @@
  *  the donations log arrive in later slices. */
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCookie from '@fastify/cookie';
 import { z } from 'zod';
 import { config, ssoConfigured } from './config';
 import { makeLog } from './logger';
-import { Store } from './store';
+import { Store, slugify } from './store';
+import type { Campaign, StripeAccount } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
 import { notify, platformUser } from './fabric';
 import { LoginLimiter } from './rateLimit';
 import {
+  createPaymentIntent,
+  currencyDecimals,
   looksLikePublishable,
   looksLikeSecret,
   looksLikeWebhookSecret,
   publicStripeStatus,
+  retrievePaymentIntent,
   stripeConfigured,
+  toMajor,
+  toMinor,
   verifySecretKey,
+  withCoveredFees,
 } from './stripe';
 
 const log = makeLog('main');
 
 const LOOPBACK_RE = /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[?::1)/i;
+
+/** Quote a CSV cell (escape quotes; wrap if it contains comma/quote/newline). */
+function csvCell(v: string): string {
+  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/** Friendly money string for a minor-unit amount, e.g. "£50.00". */
+function formatMoney(minor: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en', { style: 'currency', currency }).format(toMajor(minor, currency));
+  } catch {
+    return `${toMajor(minor, currency)} ${currency}`;
+  }
+}
 
 async function main(): Promise<void> {
   const store = new Store();
@@ -65,8 +87,8 @@ async function main(): Promise<void> {
       version: config.version,
       embedded: ssoConfigured(),
       omosBase: config.omosBaseUrl, // '' when standalone
-      // Whether the public donation page can take payments yet (no secrets here).
-      donationsConfigured: stripeConfigured(store.getStripe()),
+      // Whether any Stripe account is fully configured (no secrets here).
+      donationsConfigured: store.listStripeAccounts().some((a) => stripeConfigured(a)),
       // Before the admin finishes first-run setup, the landing page sends them
       // straight to /admin (where they log in / set a password, then the wizard).
       onboarded: store.isOnboarded(),
@@ -161,10 +183,40 @@ async function main(): Promise<void> {
     };
   });
 
-  // ── Settings: masjid details + Stripe config + onboarding ───────────────────
-  // GET returns the non-secret view (publishable key + booleans for the secrets).
+  // ── Currency + view helpers (amounts cross the API in MAJOR units) ──────────
+  const cur = () => store.getMasjid().currency;
+  const toMinorCur = (major: number) => toMinor(major, cur());
+  const toMajorCur = (minor: number) => toMajor(minor, cur());
+
+  /** Non-secret view of a Stripe account (publishable key + booleans only). */
+  const publicAccount = (a: StripeAccount) => ({ id: a.id, label: a.label, ...publicStripeStatus(a) });
+
+  const checkKeys = (p: { publishableKey?: string; secretKey?: string; webhookSecret?: string }): string | null => {
+    if (p.publishableKey && !looksLikePublishable(p.publishableKey)) return 'The publishable key should start with pk_.';
+    if (p.secretKey && !looksLikeSecret(p.secretKey)) return 'The secret key should start with sk_.';
+    if (p.webhookSecret && !looksLikeWebhookSecret(p.webhookSecret)) return 'The webhook secret should start with whsec_.';
+    return null;
+  };
+
+  /** Admin view of a campaign (amounts in major units + raised + public link). */
+  const adminCampaign = (c: Campaign) => ({
+    ...c,
+    presetAmounts: c.presetAmounts.map(toMajorCur),
+    minAmount: toMajorCur(c.minAmount),
+    maxAmount: toMajorCur(c.maxAmount),
+    goalAmount: toMajorCur(c.goalAmount),
+    raised: toMajorCur(store.raisedForCampaign(c.id)),
+    currency: cur(),
+    url: `/c/${c.slug}-${c.token}`,
+  });
+
+  // ── Settings: masjid details + onboarding (Stripe accounts have own routes) ──
   app.get('/api/settings', { preHandler: requireAdmin }, async () => ({
-    data: { masjid: store.getMasjid(), stripe: publicStripeStatus(store.getStripe()), onboarded: store.isOnboarded() },
+    data: {
+      masjid: store.getMasjid(),
+      stripeAccounts: store.listStripeAccounts().map(publicAccount),
+      onboarded: store.isOnboarded(),
+    },
   }));
 
   const MasjidBody = z.object({
@@ -181,39 +233,292 @@ async function main(): Promise<void> {
     return { data: store.setMasjid(parsed.data) };
   });
 
-  // Save Stripe keys. An omitted key is left as-is; '' clears it. The secret key is
-  // stored server-side and NEVER echoed back. If a secret is set we verify it with
-  // Stripe (best-effort) so the admin gets immediate confirmation.
-  const StripeBody = z.object({
-    publishableKey: z.string().max(255).optional(),
-    secretKey: z.string().max(255).optional(),
-    webhookSecret: z.string().max(255).optional(),
-  });
-  app.put('/api/settings/stripe', { preHandler: requireAdmin }, async (req, reply) => {
-    const parsed = StripeBody.safeParse(req.body);
-    if (!parsed.success) return reply.code(400).send({ error: 'Please check the keys and try again.' });
-    const p = parsed.data;
-    if (p.publishableKey && !looksLikePublishable(p.publishableKey))
-      return reply.code(400).send({ error: 'The publishable key should start with pk_.' });
-    if (p.secretKey && !looksLikeSecret(p.secretKey))
-      return reply.code(400).send({ error: 'The secret key should start with sk_.' });
-    if (p.webhookSecret && !looksLikeWebhookSecret(p.webhookSecret))
-      return reply.code(400).send({ error: 'The webhook secret should start with whsec_.' });
-    const cfg = store.setStripe(p);
-    const verify = cfg.secretKey ? await verifySecretKey(cfg.secretKey) : undefined;
-    return { data: { ...publicStripeStatus(cfg), verify } };
-  });
-
   app.post('/api/settings/complete-onboarding', { preHandler: requireAdmin }, async () => {
     store.setOnboarded();
     return { data: { ok: true } };
   });
 
-  // Re-check the stored secret key against Stripe on demand.
-  app.post('/api/admin/stripe-test', { preHandler: requireAdmin }, async () => {
-    const cfg = store.getStripe();
-    if (!cfg.secretKey) return { data: { ok: false, message: 'Add your Stripe secret key first.' } };
-    return { data: await verifySecretKey(cfg.secretKey) };
+  // ── Stripe accounts (multiple — e.g. Zakat vs general) ──────────────────────
+  // Secrets are stored server-side and NEVER echoed back; a set secret is verified
+  // with Stripe so the admin gets immediate confirmation.
+  const AccountBody = z.object({
+    label: z.string().max(80).optional(),
+    publishableKey: z.string().max(255).optional(),
+    secretKey: z.string().max(255).optional(),
+    webhookSecret: z.string().max(255).optional(),
+  });
+  app.get('/api/admin/stripe-accounts', { preHandler: requireAdmin }, async () => ({
+    data: store.listStripeAccounts().map(publicAccount),
+  }));
+  app.post('/api/admin/stripe-accounts', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = AccountBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the details.' });
+    const err = checkKeys(parsed.data);
+    if (err) return reply.code(400).send({ error: err });
+    const acct = store.createStripeAccount({ label: parsed.data.label || 'Stripe account', ...parsed.data });
+    const verify = acct.secretKey ? await verifySecretKey(acct.secretKey) : undefined;
+    return { data: { ...publicAccount(acct), verify } };
+  });
+  app.put('/api/admin/stripe-accounts/:id', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = AccountBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the details.' });
+    const err = checkKeys(parsed.data);
+    if (err) return reply.code(400).send({ error: err });
+    const acct = store.updateStripeAccount((req.params as { id: string }).id, parsed.data);
+    if (!acct) return reply.code(404).send({ error: 'Account not found.' });
+    const verify = acct.secretKey ? await verifySecretKey(acct.secretKey) : undefined;
+    return { data: { ...publicAccount(acct), verify } };
+  });
+  app.delete('/api/admin/stripe-accounts/:id', { preHandler: requireAdmin }, async (req, reply) => {
+    const res = store.deleteStripeAccount((req.params as { id: string }).id);
+    if (!res.ok) return reply.code(409).send({ error: 'A campaign uses this account. Reassign or delete those campaigns first.' });
+    return { data: { ok: true } };
+  });
+  app.post('/api/admin/stripe-accounts/:id/test', { preHandler: requireAdmin }, async (req) => {
+    const acct = store.getStripeAccount((req.params as { id: string }).id);
+    if (!acct || !acct.secretKey) return { data: { ok: false, message: 'Add a secret key first.' } };
+    return { data: await verifySecretKey(acct.secretKey) };
+  });
+
+  // ── Campaigns (admin CRUD) ──────────────────────────────────────────────────
+  const CampaignBody = z.object({
+    title: z.string().min(1).max(120).optional(),
+    slug: z.string().max(60).optional(),
+    description: z.string().max(8000).optional(),
+    coverImage: z.string().max(2000).optional(),
+    presetAmounts: z.array(z.number().nonnegative()).max(12).optional(), // major units
+    allowCustom: z.boolean().optional(),
+    minAmount: z.number().nonnegative().optional(), // major
+    maxAmount: z.number().nonnegative().optional(), // major, 0 = none
+    stripeAccountId: z.string().max(64).optional(),
+    coverFees: z.boolean().optional(),
+    giftAid: z.boolean().optional(),
+    goalAmount: z.number().nonnegative().optional(), // major
+    active: z.boolean().optional(),
+  });
+  /** Convert the major-unit amount fields on a campaign body to minor units. */
+  const campaignAmountsToMinor = (p: z.infer<typeof CampaignBody>) => ({
+    presetAmounts: p.presetAmounts?.map(toMinorCur),
+    minAmount: p.minAmount != null ? toMinorCur(p.minAmount) : undefined,
+    maxAmount: p.maxAmount != null ? toMinorCur(p.maxAmount) : undefined,
+    goalAmount: p.goalAmount != null ? toMinorCur(p.goalAmount) : undefined,
+  });
+
+  app.get('/api/admin/campaigns', { preHandler: requireAdmin }, async () => ({
+    data: store.listCampaigns().map(adminCampaign),
+  }));
+  app.post('/api/admin/campaigns', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = CampaignBody.safeParse(req.body);
+    if (!parsed.success || !parsed.data.title) return reply.code(400).send({ error: 'A campaign needs a title.' });
+    const p = parsed.data;
+    const accountId = p.stripeAccountId || store.listStripeAccounts()[0]?.id;
+    if (!accountId) return reply.code(400).send({ error: 'Add a Stripe account before creating a campaign.' });
+    const c = store.createCampaign({
+      title: p.title!, // guarded above — title is required for create
+
+      slug: p.slug ? slugify(p.slug) : undefined,
+      description: p.description,
+      coverImage: p.coverImage,
+      allowCustom: p.allowCustom,
+      stripeAccountId: accountId,
+      coverFees: p.coverFees,
+      giftAid: p.giftAid,
+      active: p.active,
+      ...campaignAmountsToMinor(p),
+    });
+    return { data: adminCampaign(c) };
+  });
+  app.put('/api/admin/campaigns/:id', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = CampaignBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the campaign details.' });
+    const p = parsed.data;
+    const c = store.updateCampaign((req.params as { id: string }).id, {
+      title: p.title,
+      slug: p.slug ? slugify(p.slug) : undefined,
+      description: p.description,
+      coverImage: p.coverImage,
+      allowCustom: p.allowCustom,
+      stripeAccountId: p.stripeAccountId,
+      coverFees: p.coverFees,
+      giftAid: p.giftAid,
+      active: p.active,
+      ...campaignAmountsToMinor(p),
+    });
+    if (!c) return reply.code(404).send({ error: 'Campaign not found.' });
+    return { data: adminCampaign(c) };
+  });
+  app.delete('/api/admin/campaigns/:id', { preHandler: requireAdmin }, async (req) => {
+    store.deleteCampaign((req.params as { id: string }).id);
+    return { data: { ok: true } };
+  });
+
+  // ── Donations log + CSV ─────────────────────────────────────────────────────
+  app.get('/api/admin/donations', { preHandler: requireAdmin }, async () => {
+    const titles = new Map(store.listCampaigns().map((c) => [c.id, c.title]));
+    const list = store.listDonations();
+    const succeeded = list.filter((d) => d.status === 'succeeded');
+    return {
+      data: {
+        donations: list.map((d) => ({ ...d, amount: toMajorCur(d.amount), campaignTitle: titles.get(d.campaignId) ?? '—' })),
+        stats: { totalRaised: toMajorCur(succeeded.reduce((s, d) => s + d.amount, 0)), count: succeeded.length, currency: cur() },
+      },
+    };
+  });
+  app.get('/api/admin/donations.csv', { preHandler: requireAdmin }, async (_req, reply) => {
+    const titles = new Map(store.listCampaigns().map((c) => [c.id, c.title]));
+    const rows = [['Date', 'Campaign', 'Amount', 'Currency', 'Status', 'Donor', 'Email', 'Gift Aid', 'Covered fees', 'PaymentIntent']];
+    for (const d of store.listDonations()) {
+      rows.push([
+        d.createdAt, titles.get(d.campaignId) ?? '', String(toMajorCur(d.amount)), d.currency, d.status,
+        d.donorName, d.donorEmail, d.giftAid ? 'yes' : 'no', d.coverFees ? 'yes' : 'no', d.paymentIntentId,
+      ]);
+    }
+    reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="donations.csv"');
+    return rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+  });
+
+  // ── Public donation flow (no auth) ──────────────────────────────────────────
+  // Simple per-IP fixed-window limiter for intent creation.
+  const donateHits = new Map<string, { c: number; reset: number }>();
+  const donateRateOk = (ip: string): boolean => {
+    const now = Date.now();
+    if (donateHits.size > 5000) for (const [k, w] of donateHits) if (w.reset <= now) donateHits.delete(k);
+    const w = donateHits.get(ip);
+    if (!w || w.reset <= now) {
+      donateHits.set(ip, { c: 1, reset: now + 60_000 });
+      return true;
+    }
+    if (w.c >= 30) return false;
+    w.c += 1;
+    return true;
+  };
+
+  const publicCampaign = (c: Campaign) => {
+    const acct = store.getStripeAccount(c.stripeAccountId);
+    return {
+      slug: c.slug,
+      token: c.token,
+      title: c.title,
+      description: c.description,
+      coverImage: c.coverImage,
+      presetAmounts: c.presetAmounts.map(toMajorCur),
+      allowCustom: c.allowCustom,
+      minAmount: toMajorCur(c.minAmount),
+      maxAmount: toMajorCur(c.maxAmount),
+      coverFees: c.coverFees,
+      giftAid: c.giftAid,
+      goalAmount: toMajorCur(c.goalAmount),
+      raised: toMajorCur(store.raisedForCampaign(c.id)),
+      currency: cur(),
+      masjidName: store.getMasjid().name,
+      publishableKey: acct?.publishableKey ?? '', // safe; never the secret
+      ready: !!acct && stripeConfigured(acct),
+    };
+  };
+
+  app.get('/api/public/campaign/:slug/:token', async (req, reply) => {
+    const { slug, token } = req.params as { slug: string; token: string };
+    const c = store.getCampaignBySlugToken(slug, token);
+    if (!c || !c.active) return reply.code(404).send({ error: 'This donation page isn’t available.' });
+    return { data: publicCampaign(c) };
+  });
+
+  const IntentBody = z.object({
+    amount: z.number().positive(), // major units
+    coverFees: z.boolean().optional(),
+    giftAid: z.boolean().optional(),
+    donorName: z.string().max(120).optional(),
+    donorEmail: z.string().max(200).optional(),
+  });
+  app.post('/api/public/campaign/:slug/:token/intent', async (req, reply) => {
+    if (!donateRateOk(req.socket.remoteAddress ?? 'unknown')) {
+      return reply.code(429).send({ error: 'Too many attempts. Please wait a moment.' });
+    }
+    const { slug, token } = req.params as { slug: string; token: string };
+    const c = store.getCampaignBySlugToken(slug, token);
+    if (!c || !c.active) return reply.code(404).send({ error: 'This donation page isn’t available.' });
+    const acct = store.getStripeAccount(c.stripeAccountId);
+    if (!acct || !stripeConfigured(acct)) return reply.code(400).send({ error: 'Donations aren’t set up for this page yet.' });
+    const parsed = IntentBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please choose a valid amount.' });
+    const p = parsed.data;
+    const currency = cur();
+    const baseMinor = toMinor(p.amount, currency);
+    // Validate against the campaign's rules — never trust the client amount.
+    if (!c.allowCustom) {
+      if (!c.presetAmounts.includes(baseMinor)) return reply.code(400).send({ error: 'Please choose one of the suggested amounts.' });
+    } else {
+      if (baseMinor < Math.max(c.minAmount, 1)) return reply.code(400).send({ error: 'That amount is below the minimum.' });
+      if (c.maxAmount > 0 && baseMinor > c.maxAmount) return reply.code(400).send({ error: 'That amount is above the maximum.' });
+    }
+    // Stripe rejects very small charges; enforce a floor (~0.50 in 2-decimal currencies).
+    const floor = currencyDecimals(currency) === 0 ? 50 : 50;
+    if (baseMinor < floor) return reply.code(400).send({ error: 'That amount is too small.' });
+
+    const coverFees = !!p.coverFees && c.coverFees;
+    const chargeMinor = coverFees ? withCoveredFees(baseMinor, currency) : baseMinor;
+    const giftAid = !!p.giftAid && c.giftAid;
+    let intent;
+    try {
+      intent = await createPaymentIntent(
+        acct,
+        chargeMinor,
+        currency,
+        { app: 'donations', campaignId: c.id, campaign: c.title.slice(0, 120), coverFees: String(coverFees), giftAid: String(giftAid) },
+        crypto.randomUUID(),
+      );
+    } catch (e) {
+      log.warn('createPaymentIntent failed: ' + (e instanceof Error ? e.message : String(e)));
+      return reply.code(502).send({ error: 'We couldn’t start the payment. Please try again.' });
+    }
+    store.createDonation({
+      campaignId: c.id,
+      stripeAccountId: acct.id,
+      amount: chargeMinor,
+      currency,
+      status: 'pending',
+      donorName: (p.donorName ?? '').slice(0, 120),
+      donorEmail: (p.donorEmail ?? '').slice(0, 200),
+      coverFees,
+      giftAid,
+      paymentIntentId: intent.id,
+    });
+    return {
+      data: { clientSecret: intent.clientSecret, publishableKey: acct.publishableKey, amount: toMajor(chargeMinor, currency), currency },
+    };
+  });
+
+  // Confirm a return from the Payment Element by RETRIEVING the intent from Stripe
+  // (never trust the client). Records the outcome + alerts the masjid on first success.
+  const ConfirmBody = z.object({ paymentIntentId: z.string().max(255), slug: z.string().max(80), token: z.string().max(40) });
+  app.post('/api/public/confirm', async (req, reply) => {
+    const parsed = ConfirmBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Missing payment reference.' });
+    const { paymentIntentId, slug, token } = parsed.data;
+    const c = store.getCampaignBySlugToken(slug, token);
+    if (!c) return reply.code(404).send({ error: 'Unknown campaign.' });
+    const acct = store.getStripeAccount(c.stripeAccountId);
+    const don = store.getDonationByPaymentIntent(paymentIntentId);
+    if (!acct || !don || don.campaignId !== c.id) return reply.code(404).send({ error: 'Unknown donation.' });
+    const pi = await retrievePaymentIntent(acct, paymentIntentId);
+    if (!pi) return reply.code(502).send({ error: 'Couldn’t confirm with Stripe. Please try again.' });
+    const succeeded = pi.status === 'succeeded';
+    const wasPending = don.status === 'pending';
+    const status: 'succeeded' | 'failed' | 'pending' = succeeded ? 'succeeded' : pi.status === 'processing' ? 'pending' : 'failed';
+    const updated = store.markDonation(paymentIntentId, status, pi.billingName || don.donorName, pi.receiptEmail || don.donorEmail);
+    if (succeeded && wasPending) {
+      void notify({ title: 'New donation', text: `A donation of ${formatMoney(pi.amount, pi.currency)} to “${c.title}” was received.`, level: 'success' });
+    }
+    return {
+      data: {
+        status: pi.status,
+        succeeded,
+        amount: toMajor(pi.amount, pi.currency),
+        currency: pi.currency,
+        campaignTitle: c.title,
+        donorName: updated?.donorName ?? '',
+      },
+    };
   });
 
   // ── Static web app (built by Vite into ./public) ────────────────────────────

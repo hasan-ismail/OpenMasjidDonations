@@ -1,60 +1,27 @@
-/** The login-protected admin area.
- *  - Standalone first run: create an admin password, then a guided setup wizard.
- *  - Under OpenMasjidOS: sign in via the dashboard (SSO), then the same wizard.
- *  The wizard collects masjid details + Stripe keys (with instructions). Stripe's
- *  SECRET key is sent to the server and never comes back to the browser. */
+/** The login-protected admin area: first-run setup, then manage Stripe accounts,
+ *  campaigns (donation pages), and the donations log. Stripe SECRET keys are sent to
+ *  the server and never returned to the browser. */
 import { useEffect, useState } from 'react';
 import {
-  Bell,
-  CheckCircle2,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Landmark,
-  LogIn,
-  LogOut,
-  RefreshCw,
-  ShieldCheck,
-  Sparkles,
+  Bell, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, KeyRound, Landmark, LogIn, LogOut, Megaphone,
+  Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Wallet,
 } from 'lucide-react';
 import {
-  completeOnboarding,
-  getSession,
-  getSettings,
-  login,
-  logout,
-  saveMasjid,
-  saveStripe,
-  sendTestNotification,
-  setupAdmin,
-  testStripe,
-  type AppInfo,
-  type MasjidProfile,
-  type NotifyTestResult,
-  type Session,
-  type Settings,
-  type StripeStatus,
-  type VerifyResult,
+  completeOnboarding, createAccount, createCampaign, deleteAccount, deleteCampaign, getDonations, getSession,
+  getSettings, listCampaigns, login, logout, money, saveMasjid, sendTestNotification, setupAdmin, testAccount,
+  updateAccount, updateCampaign,
+  type AccountInput, type AppInfo, type Campaign, type CampaignInput, type DonationsResult, type MasjidProfile,
+  type Session, type Settings, type StripeAccount, type VerifyResult,
 } from './api';
 
 const SOURCE_URL = 'https://github.com/hasan-ismail/OpenMasjidDonations';
 const STRIPE_KEYS_URL = 'https://dashboard.stripe.com/apikeys';
-const STRIPE_WEBHOOKS_URL = 'https://dashboard.stripe.com/webhooks';
 
 export function AdminApp({ info }: { info: AppInfo | null }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loaded, setLoaded] = useState(false);
-
-  const refresh = () =>
-    getSession()
-      .then(setSession)
-      .catch(() => setSession(null))
-      .finally(() => setLoaded(true));
-
-  useEffect(() => {
-    void refresh();
-  }, []);
+  const refresh = () => getSession().then(setSession).catch(() => setSession(null)).finally(() => setLoaded(true));
+  useEffect(() => void refresh(), []);
 
   if (!loaded) return <Centered><span className="spinner" aria-label="Loading" /></Centered>;
   if (session?.authed) return <AdminConsole info={info} session={session} onSignedOut={refresh} />;
@@ -63,12 +30,18 @@ export function AdminApp({ info }: { info: AppInfo | null }) {
   return <Login onDone={refresh} />;
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
-  return <main className="auth-wrap">{children}</main>;
+const Centered = ({ children }: { children: React.ReactNode }) => <main className="auth-wrap">{children}</main>;
+
+function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+  return (
+    <div className="field">
+      <label className="label" htmlFor={id}>{label}</label>
+      {children}
+    </div>
+  );
 }
 
 // ── Sign-in states ────────────────────────────────────────────────────────────
-
 function AuthCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <main className="auth-wrap">
@@ -86,39 +59,22 @@ function Setup({ onDone }: { onDone: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (password.length < 8) return setError('Please choose a password of at least 8 characters.');
     if (password !== confirm) return setError('The two passwords don’t match.');
     setBusy(true);
-    try {
-      await setupAdmin(password);
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-      setBusy(false);
-    }
+    try { await setupAdmin(password); onDone(); } catch (err) { setError(msg(err)); setBusy(false); }
   };
-
   return (
     <AuthCard title="Create your admin password">
-      <p className="auth-sub muted">
-        This is the first time this app has run. Choose a password to protect your donation settings —
-        you’ll use it to sign in from now on.
-      </p>
+      <p className="auth-sub muted">First run — choose a password to protect your donation settings. You’ll use it to sign in.</p>
       <form onSubmit={submit}>
-        <Field id="pw" label="New password">
-          <input id="pw" className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
-        </Field>
-        <Field id="pw2" label="Confirm password">
-          <input id="pw2" className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-        </Field>
+        <Field id="pw" label="New password"><input id="pw" className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
+        <Field id="pw2" label="Confirm password"><input id="pw2" className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></Field>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="btn btn--primary btn--block" type="submit" disabled={busy}>
-          {busy ? <span className="spinner" /> : <KeyRound size={16} />} Set password &amp; continue
-        </button>
+        <button className="btn btn--primary btn--block" type="submit" disabled={busy}>{busy ? <span className="spinner" /> : <KeyRound size={16} />} Set password &amp; continue</button>
       </form>
     </AuthCard>
   );
@@ -128,101 +84,58 @@ function Login({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      await login(password);
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-      setBusy(false);
-    }
+    e.preventDefault(); setError(''); setBusy(true);
+    try { await login(password); onDone(); } catch (err) { setError(msg(err)); setBusy(false); }
   };
-
   return (
     <AuthCard title="Sign in">
       <p className="auth-sub muted">Enter your admin password to manage your donation pages.</p>
       <form onSubmit={submit}>
-        <Field id="pw" label="Password">
-          <input id="pw" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
-        </Field>
+        <Field id="pw" label="Password"><input id="pw" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="btn btn--primary btn--block" type="submit" disabled={busy}>
-          {busy ? <span className="spinner" /> : <LogIn size={16} />} Sign in
-        </button>
+        <button className="btn btn--primary btn--block" type="submit" disabled={busy}>{busy ? <span className="spinner" /> : <LogIn size={16} />} Sign in</button>
       </form>
     </AuthCard>
   );
 }
 
-function SsoPrompt() {
-  return (
-    <AuthCard title="Sign in through OpenMasjidOS">
-      <p className="auth-sub muted">
-        This app uses your OpenMasjidOS login. Open it from your OpenMasjidOS dashboard — press <b>Open</b> on the
-        Donations app — and you’ll be signed in automatically.
-      </p>
-    </AuthCard>
-  );
-}
+const SsoPrompt = () => (
+  <AuthCard title="Sign in through OpenMasjidOS">
+    <p className="auth-sub muted">This app uses your OpenMasjidOS login. Open it from your dashboard — press <b>Open</b> on the Donations app — and you’ll be signed in automatically.</p>
+  </AuthCard>
+);
 
-// ── Console: loads settings, then routes to the wizard or the home ──────────────
-
+// ── Console ─────────────────────────────────────────────────────────────────
 function AdminConsole({ info, session, onSignedOut }: { info: AppInfo | null; session: Session; onSignedOut: () => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loaded, setLoaded] = useState(false);
-
-  const reload = () =>
-    getSettings()
-      .then(setSettings)
-      .catch(() => setSettings(null))
-      .finally(() => setLoaded(true));
-
-  useEffect(() => {
-    void reload();
-  }, []);
+  const reload = () => getSettings().then(setSettings).catch(() => setSettings(null)).finally(() => setLoaded(true));
+  useEffect(() => void reload(), []);
 
   if (!loaded) return <Centered><span className="spinner" aria-label="Loading" /></Centered>;
   if (!settings) return <Centered><p className="muted">Couldn’t load your settings. Please refresh.</p></Centered>;
-
   if (!settings.onboarded) return <Onboarding settings={settings} onReload={reload} />;
   return <AdminHome info={info} session={session} settings={settings} onReload={reload} onSignedOut={onSignedOut} />;
 }
 
-// ── First-run wizard ────────────────────────────────────────────────────────
-
 function Onboarding({ settings, onReload }: { settings: Settings; onReload: () => void }) {
   const [finishing, setFinishing] = useState(false);
-
-  const finish = async () => {
-    setFinishing(true);
-    try {
-      await completeOnboarding();
-      onReload();
-    } catch {
-      setFinishing(false);
-    }
-  };
-
+  const finish = async () => { setFinishing(true); try { await completeOnboarding(); onReload(); } catch { setFinishing(false); } };
   return (
     <main className="admin">
       <div className="page-head">
         <h1 className="page-title">Let’s set up your donations</h1>
-        <p className="page-sub">A couple of details and your Stripe keys — then you’re ready to create appeals.</p>
+        <p className="page-sub">Your masjid details and a Stripe account — then create your first appeal.</p>
       </div>
       <MasjidCard masjid={settings.masjid} onSaved={onReload} />
-      <StripeCard stripe={settings.stripe} onSaved={onReload} />
+      <StripeAccountsCard accounts={settings.stripeAccounts} onChanged={onReload} />
       <section className="glass panel">
         <div className="row-between">
           <p className="muted" style={{ margin: 0 }}>
-            {!settings.masjid.name.trim()
-              ? 'Add and save your masjid name above to finish.'
-              : settings.stripe.configured
-                ? 'Stripe is connected ✓ — you can change anything later.'
-                : 'You can add Stripe now or later — change anything anytime.'}
+            {!settings.masjid.name.trim() ? 'Add and save your masjid name to finish.'
+              : settings.stripeAccounts.some((a) => a.configured) ? 'Stripe is connected ✓ — you can change anything later.'
+              : 'You can add Stripe now or later — change anything anytime.'}
           </p>
           <button className="btn btn--primary" onClick={finish} disabled={finishing || !settings.masjid.name.trim()}>
             {finishing ? <span className="spinner" /> : <CheckCircle2 size={16} />} Finish setup
@@ -233,364 +146,379 @@ function Onboarding({ settings, onReload }: { settings: Settings; onReload: () =
   );
 }
 
-// ── Signed-in home ──────────────────────────────────────────────────────────
-
-function AdminHome({
-  info,
-  session,
-  settings,
-  onReload,
-  onSignedOut,
-}: {
-  info: AppInfo | null;
-  session: Session;
-  settings: Settings;
-  onReload: () => void;
-  onSignedOut: () => void;
+function AdminHome({ info, session, settings, onReload, onSignedOut }: {
+  info: AppInfo | null; session: Session; settings: Settings; onReload: () => void; onSignedOut: () => void;
 }) {
   const embedded = !!info?.embedded;
   const [signingOut, setSigningOut] = useState(false);
-
-  const signOut = async () => {
-    setSigningOut(true);
-    try {
-      await logout();
-    } catch {
-      /* ignore */
-    }
-    onSignedOut();
-  };
-
+  const signOut = async () => { setSigningOut(true); try { await logout(); } catch { /* ignore */ } onSignedOut(); };
   return (
     <main className="admin">
       <div className="page-head">
         <h1 className="page-title">Admin</h1>
-        <p className="page-sub">
-          {session.sso.username ? `Signed in as ${session.sso.username}` : 'Signed in'}
-          {embedded ? ' · via OpenMasjidOS' : ''}
-        </p>
+        <p className="page-sub">{session.sso.username ? `Signed in as ${session.sso.username}` : 'Signed in'}{embedded ? ' · via OpenMasjidOS' : ''}</p>
       </div>
-
+      <CampaignsCard accounts={settings.stripeAccounts} currency={settings.masjid.currency} />
+      <StripeAccountsCard accounts={settings.stripeAccounts} onChanged={onReload} />
+      <DonationsCard />
       <MasjidCard masjid={settings.masjid} onSaved={onReload} />
-      <StripeCard stripe={settings.stripe} onSaved={onReload} />
-
-      <section className="glass panel">
-        <div className="row">
-          <Sparkles size={18} className="panel-ico" aria-hidden="true" />
-          <div>
-            <h2 className="section-title-inline">Appeals</h2>
-            <p className="muted">Coming next: create your appeals (General Fund, Zakat, Building Fund…) with preset and custom amounts.</p>
-          </div>
-        </div>
-      </section>
-
       <Notifications embedded={embedded} />
-
       <section className="glass panel">
         <div className="row-between">
-          <div className="row">
-            <ShieldCheck size={18} className="panel-ico" aria-hidden="true" />
-            <span className="muted">
-              {embedded ? 'Signed in with your OpenMasjidOS login.' : 'Signed in with your local admin password.'}
-            </span>
-          </div>
-          <button className="btn btn--ghost btn--sm" onClick={signOut} disabled={signingOut}>
-            {signingOut ? <span className="spinner" /> : <LogOut size={15} />} Sign out
-          </button>
+          <div className="row"><ShieldCheck size={18} className="panel-ico" aria-hidden="true" /><span className="muted">{embedded ? 'Signed in with your OpenMasjidOS login.' : 'Signed in with your local admin password.'}</span></div>
+          <button className="btn btn--ghost btn--sm" onClick={signOut} disabled={signingOut}>{signingOut ? <span className="spinner" /> : <LogOut size={15} />} Sign out</button>
         </div>
       </section>
-
-      <p className="admin-foot faint">
-        OpenMasjid Donations v{info?.version ?? __APP_VERSION__} ·{' '}
-        <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Source code <ExternalLink size={12} /></a> · AGPL-3.0
-      </p>
+      <p className="admin-foot faint">OpenMasjid Donations v{info?.version ?? __APP_VERSION__} · <a href={SOURCE_URL} target="_blank" rel="noreferrer noopener">Source code <ExternalLink size={12} /></a> · AGPL-3.0</p>
     </main>
   );
 }
 
-// ── Masjid details card ───────────────────────────────────────────────────────
-
+// ── Masjid details ──────────────────────────────────────────────────────────
 function MasjidCard({ masjid, onSaved }: { masjid: MasjidProfile; onSaved: () => void }) {
   const [form, setForm] = useState<MasjidProfile>(masjid);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const set = (k: keyof MasjidProfile) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
-
   const save = async () => {
-    setBusy(true);
-    setError('');
-    setSaved(false);
-    try {
-      await saveMasjid(form);
-      setSaved(true);
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setBusy(false);
-    }
+    setBusy(true); setError(''); setSaved(false);
+    try { await saveMasjid(form); setSaved(true); onSaved(); } catch (err) { setError(msg(err)); } finally { setBusy(false); }
   };
-
   return (
     <section className="glass panel">
-      <div className="card-head">
-        <Landmark size={18} className="panel-ico" aria-hidden="true" />
-        <div>
-          <h2 className="section-title-inline">Your masjid</h2>
-          <p className="muted">Shown on your donation page and receipts.</p>
-        </div>
+      <div className="card-head"><Landmark size={18} className="panel-ico" aria-hidden="true" /><div><h2 className="section-title-inline">Your masjid</h2><p className="muted">Shown on your donation pages. Currency applies to all campaigns.</p></div></div>
+      <div className="grid2">
+        <Field id="m-name" label="Masjid name"><input id="m-name" className="input" value={form.name} onChange={set('name')} placeholder="e.g. Madani Masjid" /></Field>
+        <Field id="m-cur" label="Currency (ISO code)"><input id="m-cur" className="input" value={form.currency} onChange={set('currency')} placeholder="GBP" maxLength={8} /></Field>
       </div>
       <div className="grid2">
-        <Field id="m-name" label="Masjid name">
-          <input id="m-name" className="input" value={form.name} onChange={set('name')} placeholder="e.g. Madani Masjid" />
-        </Field>
-        <Field id="m-cur" label="Currency (ISO code)">
-          <input id="m-cur" className="input" value={form.currency} onChange={set('currency')} placeholder="GBP" maxLength={8} />
-        </Field>
+        <Field id="m-email" label="Contact email (optional)"><input id="m-email" className="input" type="email" value={form.email} onChange={set('email')} /></Field>
+        <Field id="m-phone" label="Phone (optional)"><input id="m-phone" className="input" value={form.phone} onChange={set('phone')} /></Field>
       </div>
-      <Field id="m-addr" label="Address (optional)">
-        <input id="m-addr" className="input" value={form.address} onChange={set('address')} />
-      </Field>
-      <div className="grid2">
-        <Field id="m-email" label="Contact email (optional)">
-          <input id="m-email" className="input" type="email" value={form.email} onChange={set('email')} />
-        </Field>
-        <Field id="m-phone" label="Phone (optional)">
-          <input id="m-phone" className="input" value={form.phone} onChange={set('phone')} />
-        </Field>
-      </div>
-      <Field id="m-web" label="Website (optional)">
-        <input id="m-web" className="input" value={form.website} onChange={set('website')} placeholder="https://" />
-      </Field>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="row-between">
-        <span className="hint">{saved ? 'Saved ✓' : ''}</span>
-        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>
-          {busy ? <span className="spinner" /> : null} Save masjid details
-        </button>
-      </div>
+      <div className="row-between"><span className="hint">{saved ? 'Saved ✓' : ''}</span><button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} Save masjid details</button></div>
     </section>
   );
 }
 
-// ── Stripe / payments card ────────────────────────────────────────────────────
-
-function TestModeBadge({ mode }: { mode: StripeStatus['mode'] }) {
-  if (mode === 'test') return <span className="badge badge--test">TEST MODE</span>;
-  if (mode === 'live') return <span className="badge badge--live">LIVE</span>;
+// ── Stripe accounts ───────────────────────────────────────────────────────────
+function ModeBadge({ a }: { a: StripeAccount }) {
+  if (a.mode === 'test') return <span className="badge badge--test">TEST</span>;
+  if (a.mode === 'live') return <span className="badge badge--live">LIVE</span>;
   return null;
+}
+
+function StripeAccountsCard({ accounts, onChanged }: { accounts: StripeAccount[]; onChanged: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState('');
+  return (
+    <section className="glass panel">
+      <div className="card-head">
+        <Wallet size={18} className="panel-ico" aria-hidden="true" />
+        <div className="card-head__main">
+          <h2 className="section-title-inline">Payments (Stripe accounts)</h2>
+          <p className="muted">Add one or more Stripe accounts — e.g. a separate account for Zakat. Secret keys stay on this device.</p>
+        </div>
+      </div>
+      <StripeInstructions />
+      <div className="list">
+        {accounts.map((a) => (
+          <div key={a.id}>
+            <div className="list-row">
+              <Wallet size={16} className="muted" aria-hidden="true" />
+              <div className="list-row__main">
+                <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span className="list-row__title">{a.label}</span>
+                  <ModeBadge a={a} />
+                  {a.configured ? <span className="status-pill status-pill--ok"><CheckCircle2 size={12} /> Connected</span> : <span className="status-pill">Needs keys</span>}
+                </div>
+                {a.keysMismatch && <p className="form-error" style={{ margin: '0.2rem 0 0' }}>Keys are in different modes (one test, one live).</p>}
+              </div>
+              <button className="icon-btn" title="Edit" onClick={() => setEditId(editId === a.id ? '' : a.id)}><Pencil size={15} /></button>
+            </div>
+            {editId === a.id && <AccountForm account={a} onDone={() => { setEditId(''); onChanged(); }} />}
+          </div>
+        ))}
+        {accounts.length === 0 && <p className="muted" style={{ padding: '0.5rem 0' }}>No Stripe accounts yet.</p>}
+      </div>
+      {adding ? (
+        <AccountForm onDone={() => { setAdding(false); onChanged(); }} />
+      ) : (
+        <button className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}><Plus size={15} /> Add Stripe account</button>
+      )}
+    </section>
+  );
+}
+
+function AccountForm({ account, onDone }: { account?: StripeAccount; onDone: () => void }) {
+  const editing = !!account;
+  const [label, setLabel] = useState(account?.label ?? '');
+  const [pk, setPk] = useState(account?.publishableKey ?? '');
+  const [sk, setSk] = useState('');
+  const [showSk, setShowSk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [del, setDel] = useState(false);
+  const [error, setError] = useState('');
+  const [verify, setVerify] = useState<VerifyResult | null>(null);
+
+  const save = async () => {
+    setBusy(true); setError(''); setVerify(null);
+    try {
+      const body: AccountInput = { label: label.trim() || 'Stripe account' };
+      if (!editing || pk !== account?.publishableKey) body.publishableKey = pk.trim();
+      if (sk.trim()) body.secretKey = sk.trim();
+      const res = editing ? await updateAccount(account!.id, body) : await createAccount(body);
+      if (res.verify) setVerify(res.verify);
+      if (!res.verify || res.verify.ok) { onDone(); return; }
+    } catch (err) { setError(msg(err)); }
+    setBusy(false);
+  };
+  const test = async () => {
+    if (!account) return;
+    setBusy(true); setError('');
+    try { setVerify(await testAccount(account.id)); } catch (err) { setError(msg(err)); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    if (!account) return;
+    setDel(true); setError('');
+    try { await deleteAccount(account.id); onDone(); } catch (err) { setError(msg(err)); setDel(false); }
+  };
+
+  return (
+    <div className="subform glass-inset">
+      <Field id="al" label="Label"><input id="al" className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. General fund, Zakat" /></Field>
+      <Field id="apk" label="Publishable key (pk_…)"><input id="apk" className="input mono" value={pk} onChange={(e) => setPk(e.target.value)} placeholder="pk_test_…" autoComplete="off" spellCheck={false} /></Field>
+      <Field id="ask" label={account?.hasSecretKey ? 'Secret key (sk_…) — saved; blank keeps it' : 'Secret key (sk_…)'}>
+        <div className="input-affix">
+          <input id="ask" className="input mono" type={showSk ? 'text' : 'password'} value={sk} onChange={(e) => setSk(e.target.value)} placeholder={account?.hasSecretKey ? '•••••••• (unchanged)' : 'sk_test_…'} autoComplete="off" spellCheck={false} />
+          <button type="button" className="affix-btn" onClick={() => setShowSk((s) => !s)} aria-label={showSk ? 'Hide' : 'Show'}>{showSk ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+        </div>
+      </Field>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {verify && <p className={verify.ok ? 'hint' : 'form-error'} role="status">{verify.ok ? `Stripe accepted your key${verify.mode ? ` (${verify.mode} mode)` : ''}. ✓` : verify.message}</p>}
+      <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
+        <div className="row" style={{ gap: '0.4rem' }}>
+          {editing && <button className="btn btn--ghost btn--sm" onClick={test} disabled={busy}><RefreshCw size={14} /> Test</button>}
+          {editing && <button className="btn btn--ghost btn--sm" onClick={remove} disabled={del} title="Delete account"><Trash2 size={14} /> Delete</button>}
+        </div>
+        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save' : 'Add account'}</button>
+      </div>
+    </div>
+  );
 }
 
 function StripeInstructions() {
   return (
     <details className="steps-details">
-      <summary>Where do I get these from Stripe?</summary>
+      <summary>Where do I get Stripe keys?</summary>
       <ol className="steps">
-        <li>
-          Create a free account at <a href="https://stripe.com" target="_blank" rel="noreferrer noopener">stripe.com</a> (or sign in).
-        </li>
-        <li>
-          Keep <b>Test mode</b> on (the toggle at the top of the Stripe dashboard) while you try things out — use real
-          <b> live</b> keys only when you’re ready to take real money.
-        </li>
-        <li>
-          Open <a href={STRIPE_KEYS_URL} target="_blank" rel="noreferrer noopener">Developers → API keys <ExternalLink size={11} /></a>.
-          Copy the <b>Publishable key</b> (starts <code>pk_</code>) and click <b>Reveal</b> then copy the <b>Secret key</b> (starts <code>sk_</code>).
-        </li>
-        <li>Paste both below and save. Your secret key stays on this device and is never shown in the browser again.</li>
-        <li className="muted">
-          <b>Webhook secret</b> (optional, advanced): only needed if you make this page reachable from the public internet.
-          In <a href={STRIPE_WEBHOOKS_URL} target="_blank" rel="noreferrer noopener">Developers → Webhooks <ExternalLink size={11} /></a> add an
-          endpoint at <code>/api/stripe/webhook</code> and copy its signing secret (starts <code>whsec_</code>).
-        </li>
+        <li>Create a free account at <a href="https://stripe.com" target="_blank" rel="noreferrer noopener">stripe.com</a> (or sign in).</li>
+        <li>Keep <b>Test mode</b> on while you try things out; switch to live keys when ready for real money.</li>
+        <li>Open <a href={STRIPE_KEYS_URL} target="_blank" rel="noreferrer noopener">Developers → API keys <ExternalLink size={11} /></a>. Copy the <b>Publishable key</b> (<code>pk_</code>) and reveal + copy the <b>Secret key</b> (<code>sk_</code>).</li>
+        <li>Paste them here and save. Your secret key stays on this device and is never shown again.</li>
       </ol>
     </details>
   );
 }
 
-function StripeCard({ stripe, onSaved }: { stripe: StripeStatus; onSaved: () => void }) {
-  const [pk, setPk] = useState(stripe.publishableKey);
-  const [sk, setSk] = useState(''); // never prefilled — the server never sends it back
-  const [whsec, setWhsec] = useState('');
-  const [showSk, setShowSk] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [error, setError] = useState('');
-  const [verify, setVerify] = useState<VerifyResult | null>(null);
+// ── Campaigns ───────────────────────────────────────────────────────────────
+function CampaignsCard({ accounts, currency }: { accounts: StripeAccount[]; currency: string }) {
+  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editId, setEditId] = useState('');
+  const reload = () => listCampaigns().then(setCampaigns).catch(() => setCampaigns([]));
+  useEffect(() => void reload(), []);
 
-  const save = async () => {
-    setBusy(true);
-    setError('');
-    setVerify(null);
-    try {
-      const patch: { publishableKey?: string; secretKey?: string; webhookSecret?: string } = {};
-      // Send publishable only if changed; secret/webhook only if the admin typed one.
-      if (pk !== stripe.publishableKey) patch.publishableKey = pk.trim();
-      if (sk.trim()) patch.secretKey = sk.trim();
-      if (whsec.trim()) patch.webhookSecret = whsec.trim();
-      const res = await saveStripe(patch);
-      setSk('');
-      setWhsec('');
-      if (res.verify) setVerify(res.verify);
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const test = async () => {
-    setTesting(true);
-    setError('');
-    try {
-      setVerify(await testStripe());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setTesting(false);
-    }
-  };
-
+  const noAccount = accounts.length === 0;
   return (
     <section className="glass panel">
       <div className="card-head">
-        <KeyRound size={18} className="panel-ico" aria-hidden="true" />
+        <Megaphone size={18} className="panel-ico" aria-hidden="true" />
         <div className="card-head__main">
-          <div className="row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-            <h2 className="section-title-inline">Payments (Stripe)</h2>
-            <TestModeBadge mode={stripe.mode} />
-            {stripe.configured ? (
-              <span className="status-pill status-pill--ok"><CheckCircle2 size={13} /> Connected</span>
-            ) : (
-              <span className="status-pill">Not set up yet</span>
-            )}
+          <h2 className="section-title-inline">Campaigns</h2>
+          <p className="muted">Each appeal gets its own shareable link. Point different appeals at different Stripe accounts.</p>
+        </div>
+      </div>
+      {noAccount && <p className="hint">Add a Stripe account below first, then create a campaign.</p>}
+      <div className="list">
+        {(campaigns ?? []).map((c) => (
+          <div key={c.id}>
+            <div className="list-row">
+              <div className="list-row__main">
+                <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span className="list-row__title">{c.title}</span>
+                  {c.active ? <span className="status-pill status-pill--ok">Live</span> : <span className="status-pill">Hidden</span>}
+                </div>
+                <CampaignLink url={c.url} />
+                <p className="list-row__sub">{money(c.raised, c.currency)} raised{c.goalAmount ? ` of ${money(c.goalAmount, c.currency)}` : ''}</p>
+              </div>
+              <button className="icon-btn" title="Edit" onClick={() => setEditId(editId === c.id ? '' : c.id)}><Pencil size={15} /></button>
+            </div>
+            {editId === c.id && <CampaignForm campaign={c} accounts={accounts} currency={currency} onDone={() => { setEditId(''); reload(); }} />}
           </div>
-          <p className="muted">Donors pay by card through Stripe. Your secret key is stored only on this device.</p>
-        </div>
+        ))}
+        {campaigns && campaigns.length === 0 && !creating && <p className="muted" style={{ padding: '0.5rem 0' }}>No campaigns yet.</p>}
       </div>
-
-      <StripeInstructions />
-
-      {stripe.keysMismatch && (
-        <p className="form-error" role="alert">Your publishable and secret keys are in different modes (one test, one live). Use a matching pair.</p>
+      {creating ? (
+        <CampaignForm accounts={accounts} currency={currency} onDone={() => { setCreating(false); reload(); }} />
+      ) : (
+        <button className="btn btn--primary btn--sm" disabled={noAccount} onClick={() => setCreating(true)}><Plus size={15} /> New campaign</button>
       )}
+    </section>
+  );
+}
 
-      <Field id="pk" label="Publishable key (pk_…)">
-        <input id="pk" className="input mono" value={pk} onChange={(e) => setPk(e.target.value)} placeholder="pk_test_…" autoComplete="off" spellCheck={false} />
+function CampaignLink({ url }: { url: string }) {
+  const full = typeof location !== 'undefined' ? location.origin + url : url;
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(full); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+  return (
+    <div className="camp-link">
+      <a href={url} target="_blank" rel="noreferrer noopener" className="mono">{url}</a>
+      <button className="icon-btn" title="Copy link" onClick={copy}>{copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}</button>
+    </div>
+  );
+}
+
+function CampaignForm({ campaign, accounts, currency, onDone }: {
+  campaign?: Campaign; accounts: StripeAccount[]; currency: string; onDone: () => void;
+}) {
+  const editing = !!campaign;
+  const [title, setTitle] = useState(campaign?.title ?? '');
+  const [description, setDescription] = useState(campaign?.description ?? '');
+  const [coverImage, setCoverImage] = useState(campaign?.coverImage ?? '');
+  const [presets, setPresets] = useState((campaign?.presetAmounts ?? [10, 25, 50, 100]).join(', '));
+  const [allowCustom, setAllowCustom] = useState(campaign?.allowCustom ?? true);
+  const [minAmount, setMinAmount] = useState(String(campaign?.minAmount ?? 1));
+  const [stripeAccountId, setStripeAccountId] = useState(campaign?.stripeAccountId ?? accounts[0]?.id ?? '');
+  const [coverFees, setCoverFees] = useState(campaign?.coverFees ?? false);
+  const [giftAid, setGiftAid] = useState(campaign?.giftAid ?? false);
+  const [goalAmount, setGoalAmount] = useState(String(campaign?.goalAmount ?? 0));
+  const [active, setActive] = useState(campaign?.active ?? true);
+  const [busy, setBusy] = useState(false);
+  const [del, setDel] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setBusy(true); setError('');
+    const body: CampaignInput = {
+      title: title.trim(),
+      description: description.trim(),
+      coverImage: coverImage.trim(),
+      presetAmounts: presets.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0),
+      allowCustom,
+      minAmount: Number(minAmount) || 0,
+      stripeAccountId,
+      coverFees,
+      giftAid,
+      goalAmount: Number(goalAmount) || 0,
+      active,
+    };
+    if (!body.title) { setError('Please enter a title.'); setBusy(false); return; }
+    try { editing ? await updateCampaign(campaign!.id, body) : await createCampaign(body); onDone(); }
+    catch (err) { setError(msg(err)); setBusy(false); }
+  };
+  const remove = async () => {
+    if (!campaign) return;
+    setDel(true);
+    try { await deleteCampaign(campaign.id); onDone(); } catch (err) { setError(msg(err)); setDel(false); }
+  };
+
+  return (
+    <div className="subform glass-inset">
+      <Field id="ct" label="Title"><input id="ct" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. General Fund, Zakat, Building Fund" /></Field>
+      <Field id="cd" label="Description (optional)"><textarea id="cd" className="input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+      <Field id="cimg" label="Cover image URL (optional)"><input id="cimg" className="input" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://" /></Field>
+      <Field id="cp" label={`Suggested amounts (${currency}, comma-separated)`}><input id="cp" className="input" value={presets} onChange={(e) => setPresets(e.target.value)} placeholder="10, 25, 50, 100" /></Field>
+      <div className="grid2">
+        <Field id="cmin" label={`Minimum custom amount (${currency})`}><input id="cmin" className="input" type="number" min="0" step="0.01" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} /></Field>
+        <Field id="cgoal" label={`Goal (${currency}, 0 = none)`}><input id="cgoal" className="input" type="number" min="0" step="0.01" value={goalAmount} onChange={(e) => setGoalAmount(e.target.value)} /></Field>
+      </div>
+      <Field id="cacct" label="Stripe account (where money goes)">
+        <select id="cacct" className="input" value={stripeAccountId} onChange={(e) => setStripeAccountId(e.target.value)}>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}{a.configured ? '' : ' (needs keys)'}</option>)}
+        </select>
       </Field>
-
-      <Field id="sk" label={stripe.hasSecretKey ? 'Secret key (sk_…) — saved; leave blank to keep' : 'Secret key (sk_…)'}>
-        <div className="input-affix">
-          <input
-            id="sk"
-            className="input mono"
-            type={showSk ? 'text' : 'password'}
-            value={sk}
-            onChange={(e) => setSk(e.target.value)}
-            placeholder={stripe.hasSecretKey ? '•••••••• (unchanged)' : 'sk_test_…'}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button type="button" className="affix-btn" onClick={() => setShowSk((s) => !s)} aria-label={showSk ? 'Hide' : 'Show'}>
-            {showSk ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-        </div>
-      </Field>
-
-      <details className="steps-details">
-        <summary>Webhook secret (optional)</summary>
-        <Field id="whsec" label={stripe.hasWebhookSecret ? 'Webhook secret (whsec_…) — saved; leave blank to keep' : 'Webhook secret (whsec_…)'}>
-          <input id="whsec" className="input mono" value={whsec} onChange={(e) => setWhsec(e.target.value)} placeholder="whsec_…" autoComplete="off" spellCheck={false} />
-        </Field>
-      </details>
-
+      <label className="check-row"><input type="checkbox" checked={allowCustom} onChange={(e) => setAllowCustom(e.target.checked)} /><span>Allow donors to enter their own amount</span></label>
+      <label className="check-row"><input type="checkbox" checked={coverFees} onChange={(e) => setCoverFees(e.target.checked)} /><span>Offer donors the option to cover card fees</span></label>
+      <label className="check-row"><input type="checkbox" checked={giftAid} onChange={(e) => setGiftAid(e.target.checked)} /><span>Offer Gift Aid (UK)</span></label>
+      <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span>Live (visible to donors)</span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
-      {verify && (
-        <p className={verify.ok ? 'hint' : 'form-error'} role="status">
-          {verify.ok
-            ? `Stripe accepted your key${verify.mode ? ` (${verify.mode} mode)` : ''}. ✓`
-            : verify.message}
-        </p>
-      )}
-
       <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
-        <button className="btn btn--ghost btn--sm" onClick={test} disabled={testing || !stripe.hasSecretKey}>
-          {testing ? <span className="spinner" /> : <RefreshCw size={14} />} Test connection
-        </button>
-        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>
-          {busy ? <span className="spinner" /> : null} Save payment keys
-        </button>
+        {editing ? <button className="btn btn--ghost btn--sm" onClick={remove} disabled={del}><Trash2 size={14} /> Delete</button> : <span />}
+        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save campaign' : 'Create campaign'}</button>
       </div>
+    </div>
+  );
+}
+
+// ── Donations log ───────────────────────────────────────────────────────────
+function DonationsCard() {
+  const [data, setData] = useState<DonationsResult | null>(null);
+  useEffect(() => { getDonations().then(setData).catch(() => setData(null)); }, []);
+  return (
+    <section className="glass panel">
+      <div className="card-head">
+        <Wallet size={18} className="panel-ico" aria-hidden="true" />
+        <div className="card-head__main">
+          <div className="row-between">
+            <h2 className="section-title-inline">Donations</h2>
+            {data && data.donations.length > 0 && <a className="btn btn--ghost btn--sm" href="/api/admin/donations.csv">Export CSV</a>}
+          </div>
+          {data && <p className="muted">{money(data.stats.totalRaised, data.stats.currency)} raised · {data.stats.count} donation{data.stats.count === 1 ? '' : 's'}</p>}
+        </div>
+      </div>
+      {!data ? <span className="spinner" /> : data.donations.length === 0 ? (
+        <p className="muted">No donations yet.</p>
+      ) : (
+        <div className="don-scroll">
+          <table className="don-table">
+            <thead><tr><th>Date</th><th>Campaign</th><th>Amount</th><th>Donor</th><th>Status</th></tr></thead>
+            <tbody>
+              {data.donations.slice(0, 100).map((d) => (
+                <tr key={d.id}>
+                  <td>{new Date(d.createdAt).toLocaleDateString()}</td>
+                  <td>{d.campaignTitle}</td>
+                  <td>{money(d.amount, d.currency)}</td>
+                  <td>{d.donorName || '—'}</td>
+                  <td><span className={`don-status don-status--${d.status}`}>{d.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
-
 function Notifications({ embedded }: { embedded: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<NotifyTestResult | null>(null);
+  const [result, setResult] = useState<{ delivered: boolean; reason?: string; baseUrlSet: boolean; hasSecret: boolean } | null>(null);
   const [error, setError] = useState('');
-
   const test = async () => {
-    setBusy(true);
-    setError('');
-    setResult(null);
-    try {
-      setResult(await sendTestNotification());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    } finally {
-      setBusy(false);
-    }
+    setBusy(true); setError(''); setResult(null);
+    try { setResult(await sendTestNotification()); } catch (err) { setError(msg(err)); } finally { setBusy(false); }
   };
-
-  const msg = result
-    ? result.delivered
-      ? 'Sent! Check your masjid’s notification channel.'
-      : result.reason === 'disabled'
-        ? 'Notifications aren’t turned on in OpenMasjidOS yet (Settings → Notifications).'
-        : !result.baseUrlSet || !result.hasSecret
-          ? 'Notifications work when this app is launched from OpenMasjidOS.'
-          : 'Couldn’t deliver right now — check your OpenMasjidOS notification settings.'
+  const text = result
+    ? result.delivered ? 'Sent! Check your masjid’s notification channel.'
+      : result.reason === 'disabled' ? 'Notifications aren’t turned on in OpenMasjidOS yet (Settings → Notifications).'
+      : !result.baseUrlSet || !result.hasSecret ? 'Notifications work when this app is launched from OpenMasjidOS.'
+      : 'Couldn’t deliver right now — check your OpenMasjidOS notification settings.'
     : '';
-
   return (
     <section className="glass panel">
       <div className="row-between">
-        <div className="row">
-          <Bell size={18} className="panel-ico" aria-hidden="true" />
-          <div>
-            <h2 className="section-title-inline">Notifications</h2>
-            <p className="muted">
-              {embedded
-                ? 'Relay alerts (like new donations) to your masjid’s channel through OpenMasjidOS.'
-                : 'When launched from OpenMasjidOS, this app can alert your masjid’s channel about new donations.'}
-            </p>
-          </div>
-        </div>
-        <button className="btn btn--sm" onClick={test} disabled={busy}>
-          {busy ? <span className="spinner" /> : <Bell size={15} />} Send test
-        </button>
+        <div className="row"><Bell size={18} className="panel-ico" aria-hidden="true" /><div><h2 className="section-title-inline">Notifications</h2><p className="muted">{embedded ? 'New donations are relayed to your masjid’s channel via OpenMasjidOS.' : 'When launched from OpenMasjidOS, new donations alert your masjid’s channel.'}</p></div></div>
+        <button className="btn btn--sm" onClick={test} disabled={busy}>{busy ? <span className="spinner" /> : <Bell size={15} />} Send test</button>
       </div>
-      {(msg || error) && (
-        <p className={error ? 'form-error' : 'hint'} role="status" style={{ marginBlockStart: '0.6rem' }}>
-          {error || msg}
-        </p>
-      )}
+      {(text || error) && <p className={error ? 'form-error' : 'hint'} role="status" style={{ marginBlockStart: '0.6rem' }}>{error || text}</p>}
     </section>
   );
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <label className="label" htmlFor={id}>{label}</label>
-      {children}
-    </div>
-  );
+function msg(err: unknown): string {
+  return err instanceof Error ? err.message : 'Something went wrong.';
 }

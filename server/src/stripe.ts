@@ -7,6 +7,12 @@ import type { StripeConfig } from './store';
 
 export type StripeMode = 'test' | 'live' | 'unknown';
 
+/** A Stripe client with a sane network timeout + one retry, so a slow/unreachable
+ *  Stripe never hangs a donor request (the SDK default is 80s). */
+function client(secretKey: string): Stripe {
+  return new Stripe(secretKey, { timeout: 20_000, maxNetworkRetries: 1 });
+}
+
 const PK_RE = /^pk_(test|live)_[A-Za-z0-9]+$/;
 const SK_RE = /^(sk|rk)_(test|live)_[A-Za-z0-9]+$/;
 const WHSEC_RE = /^whsec_[A-Za-z0-9]+$/;
@@ -56,7 +62,7 @@ export async function verifySecretKey(secretKey: string): Promise<{ ok: boolean;
     return { ok: false, message: 'That doesn’t look like a Stripe secret key — it should start with sk_.' };
   }
   try {
-    const stripe = new Stripe(secretKey);
+    const stripe = client(secretKey);
     const balance = await stripe.balance.retrieve();
     return { ok: true, mode: balance.livemode ? 'live' : 'test' };
   } catch (err) {
@@ -65,5 +71,90 @@ export async function verifySecretKey(secretKey: string): Promise<{ ok: boolean;
       return { ok: false, message: 'Stripe didn’t accept that secret key. Check you copied the whole key.' };
     }
     return { ok: false, message: 'Couldn’t reach Stripe to check the key. Check your connection and try again.' };
+  }
+}
+
+// ── Currency minor units ──────────────────────────────────────────────────────
+// Stripe charges in the smallest currency unit. Most currencies have 2 decimals,
+// but several are zero-decimal (the amount is already the smallest unit).
+const ZERO_DECIMAL = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
+
+export function currencyDecimals(currency: string): number {
+  return ZERO_DECIMAL.has(currency.toUpperCase()) ? 0 : 2;
+}
+
+/** Major units (e.g. 10.50) → minor units (1050), respecting zero-decimal currencies. */
+export function toMinor(major: number, currency: string): number {
+  return Math.round(major * 10 ** currencyDecimals(currency));
+}
+
+/** Minor units → major (for display). */
+export function toMajor(minor: number, currency: string): number {
+  return minor / 10 ** currencyDecimals(currency);
+}
+
+/** Gross up a net amount (minor units) so the masjid receives ~net after Stripe's
+ *  fee, when the donor opts to cover fees. The fee model is an approximation
+ *  (Stripe's real fee varies by card/country) shown transparently to the donor. */
+const FEE_PCT = 0.029; // 2.9%
+const FEE_FIXED_MAJOR = 0.3; // + 30¢/30p
+export function withCoveredFees(netMinor: number, currency: string): number {
+  const fixed = toMinor(FEE_FIXED_MAJOR, currency);
+  return Math.round((netMinor + fixed) / (1 - FEE_PCT));
+}
+
+// ── Payments ──────────────────────────────────────────────────────────────────
+export interface IntentResult {
+  id: string;
+  clientSecret: string;
+}
+
+/** Create a one-time PaymentIntent on the given account. Amount in minor units. */
+export async function createPaymentIntent(
+  account: StripeConfig,
+  amountMinor: number,
+  currency: string,
+  metadata: Record<string, string>,
+  idempotencyKey: string,
+): Promise<IntentResult> {
+  const stripe = client(account.secretKey);
+  const pi = await stripe.paymentIntents.create(
+    {
+      amount: amountMinor,
+      currency: currency.toLowerCase(),
+      metadata,
+      automatic_payment_methods: { enabled: true },
+    },
+    { idempotencyKey },
+  );
+  return { id: pi.id, clientSecret: pi.client_secret ?? '' };
+}
+
+export interface RetrievedIntent {
+  status: string;
+  amount: number;
+  currency: string;
+  receiptEmail: string;
+  billingName: string;
+}
+
+/** Retrieve a PaymentIntent to verify its real status server-side (never trust the
+ *  client's word). Returns null on error. */
+export async function retrievePaymentIntent(account: StripeConfig, id: string): Promise<RetrievedIntent | null> {
+  try {
+    const stripe = client(account.secretKey);
+    const pi = await stripe.paymentIntents.retrieve(id, { expand: ['latest_charge'] });
+    const charge = pi.latest_charge && typeof pi.latest_charge !== 'string' ? pi.latest_charge : null;
+    return {
+      status: pi.status,
+      amount: pi.amount,
+      currency: pi.currency.toUpperCase(),
+      receiptEmail: pi.receipt_email ?? charge?.billing_details?.email ?? '',
+      billingName: charge?.billing_details?.name ?? '',
+    };
+  } catch {
+    return null;
   }
 }

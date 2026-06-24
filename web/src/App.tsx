@@ -5,6 +5,7 @@ import { getAppInfo, type AppInfo } from './api';
 import { useOmosAppearanceSync } from './prefs';
 import { Scene, Brand, ThemeToggle } from './ui';
 import { AdminApp } from './admin';
+import { DonatePage, parseCampaignPath } from './donate';
 
 export function App() {
   const reduce = useReducedMotion();
@@ -23,18 +24,22 @@ export function App() {
     };
   }, []);
 
-  // While embedded, follow the dashboard's live theme + wallpaper changes (both the
-  // public site and the admin area inherit the platform look).
+  // Inherit the dashboard's live theme + wallpaper + accent while embedded.
   useOmosAppearanceSync(info?.omosBase);
 
-  const isAdmin = typeof location !== 'undefined' && location.pathname.replace(/\/+$/, '').startsWith('/admin');
+  const path = typeof location !== 'undefined' ? location.pathname.replace(/\/+$/, '') : '/';
+  const campaign = parseCampaignPath(path);
+  const isAdmin = path.startsWith('/admin');
+  // First boot: until setup is done there's nothing for donors at the root, so send
+  // the admin straight to setup. Never redirect a campaign link.
+  const goToSetup = !!info && !info.onboarded && !isAdmin && !campaign;
 
-  // First boot: until the admin has finished setup there's nothing for donors to
-  // see, so the landing page sends them straight into the admin setup.
-  const goToSetup = !!info && !info.onboarded && !isAdmin;
   useEffect(() => {
     if (goToSetup) window.location.replace('/admin');
   }, [goToSetup]);
+
+  // A campaign donation page is its own full-screen experience (own Scene + chrome).
+  if (campaign) return <DonatePage slug={campaign.slug} token={campaign.token} />;
 
   return (
     <div className="shell">
@@ -63,10 +68,10 @@ function PublicHome({ info, reduce }: { info: AppInfo | null; reduce: boolean })
         <div className="hero-emblem" aria-hidden="true">
           <ShieldCheck size={32} />
         </div>
-        <h1 className="hero-title">Welcome</h1>
+        <h1 className="hero-title">Donations</h1>
         <p className="hero-lead">
-          Your masjid's donation page is getting ready. Soon you'll be able to create appeals, set
-          suggested amounts, and take card donations securely with Stripe — all on your own network.
+          This masjid's donation pages are managed here. Open a specific appeal's link to give, or sign in to
+          manage appeals and payments.
         </p>
         <div className="hero-note">
           <ShieldCheck size={16} aria-hidden="true" />
