@@ -26,7 +26,11 @@ async function main(): Promise<void> {
 
   const app = Fastify({
     logger: false, // we log ourselves and never log secrets
-    trustProxy: true,
+    // trustProxy stays OFF: the app is port-mapped directly (no reverse proxy in
+    // front), so a client-supplied X-Forwarded-For must NOT be trusted — otherwise
+    // the login rate-limiter could be bypassed by spoofing it. We key the limiter on
+    // the real TCP peer below. (A future reverse-proxy deployment would set this to
+    // the specific trusted proxy CIDR, not `true`.)
     bodyLimit: 1_048_576, // 1 MiB JSON cap (uploads get their own limit later)
   });
   await app.register(fastifyCookie); // parses req.cookies + decorates reply.setCookie
@@ -101,17 +105,21 @@ async function main(): Promise<void> {
   // ── Password login (rate-limited) ───────────────────────────────────────────
   const LoginBody = z.object({ password: z.string().min(1).max(200) });
   app.post('/api/login', async (req, reply) => {
-    const wait = loginLimiter.retryAfterMs(req.ip);
+    // Key the brute-force limiter on the real, unspoofable TCP peer — never req.ip
+    // (which would honour a forged X-Forwarded-For). This is the defence behind the
+    // short admin password, so it must not be bypassable by a request header.
+    const peer = req.socket.remoteAddress ?? 'unknown';
+    const wait = loginLimiter.retryAfterMs(peer);
     if (wait > 0) return reply.code(429).send({ error: `Too many attempts. Try again in ${Math.ceil(wait / 1000)}s.` });
     const admin = store.getAdmin();
     if (!admin) return reply.code(400).send({ error: 'This app has not been set up yet.' });
     const parsed = LoginBody.safeParse(req.body);
     if (parsed.success && verifyPassword(parsed.data.password, admin)) {
-      loginLimiter.succeed(req.ip);
+      loginLimiter.succeed(peer);
       reply.setCookie(COOKIE, makeToken(store.secret), cookieOptions());
       return { data: { ok: true } };
     }
-    loginLimiter.fail(req.ip);
+    loginLimiter.fail(peer);
     return reply.code(401).send({ error: 'Incorrect password.' });
   });
 
