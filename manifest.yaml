@@ -2,7 +2,7 @@ id: donations
 name: OpenMasjid Donations
 tagline: Take card donations on your masjid's network with Stripe
 category: donations
-version: 0.2.0
+version: 0.2.1
 author: hasan-ismail
 license: AGPL-3.0
 icon: icon.svg
@@ -31,9 +31,6 @@ description: |
   inside the app. It runs happily on a Raspberry Pi or mini-PC, on your masjid's
   own network.
 
-  You can optionally enter your Stripe keys here at install time, or set them later
-  in the app — either way works.
-
 # OpenMasjidOS Fabric: opt into single sign-on. The platform issues this app a
 # per-app secret at install (OPENMASJID_APP_SECRET) and honours its identity-bound
 # /api/auth/session calls, so "Open" signs you in with your OpenMasjidOS login.
@@ -46,35 +43,11 @@ sso: true
 # notifications aren't enabled.
 notifications: true
 
-# Optional install settings. Keeping these optional means install stays one-click —
-# Stripe can be configured later in the admin panel. The platform writes the user's
-# answers to the app's .env and substitutes ${KEY} in docker-compose.yml.
-settings:
-  - key: STRIPE_PUBLISHABLE_KEY
-    label: Stripe publishable key
-    type: text
-    required: false
-    default: ""
-    description: "Starts with pk_. You can also set this inside the app later."
-  - key: STRIPE_SECRET_KEY
-    label: Stripe secret key
-    type: password
-    required: false
-    default: ""
-    description: "Starts with sk_. Stored on your device, never shared, never shown in the browser."
-  - key: STRIPE_WEBHOOK_SECRET
-    label: Stripe webhook secret
-    type: password
-    required: false
-    default: ""
-    description: "Optional. Only needed if you expose donations publicly to receive Stripe webhooks."
-  - key: CURRENCY
-    label: Currency
-    type: text
-    required: false
-    default: "GBP"
-    description: "ISO currency code, e.g. GBP, USD, EUR. You can change this in the app."
-
+# No install-time settings — install is one-click, nothing to fill in. Everything
+# (Stripe keys, masjid details, currency) is collected in the app's guided first-run
+# setup, which opens automatically the first time you open it. Advanced operators can
+# still seed values via env on the platform; the compose references them with empty
+# defaults so it stays quiet otherwise.
 ports:
   - container: 8080
     label: Donations site

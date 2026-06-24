@@ -3,12 +3,12 @@
 # to update. It stays least-privilege: no privileged mode, no host networking, no
 # devices, no Docker socket.
 #
-# Nothing to configure at install time: install it, open it, sign in, then add
-# your Stripe keys and your first appeal inside the app (saved to /data). You can
-# optionally pre-fill Stripe keys via the install settings instead.
+# Nothing to configure at install time: install it, open it, and it takes you
+# straight to setup — sign in, then add your Stripe keys and your first appeal
+# inside the app (saved to /data).
 services:
   app:
-    image: ghcr.io/hasan-ismail/openmasjiddonations:0.2.0
+    image: ghcr.io/hasan-ismail/openmasjiddonations:0.2.1
     restart: unless-stopped
     environment:
       PORT: "8080"

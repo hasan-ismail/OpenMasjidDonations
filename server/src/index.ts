@@ -67,6 +67,9 @@ async function main(): Promise<void> {
       omosBase: config.omosBaseUrl, // '' when standalone
       // Whether the public donation page can take payments yet (no secrets here).
       donationsConfigured: stripeConfigured(store.getStripe()),
+      // Before the admin finishes first-run setup, the landing page sends them
+      // straight to /admin (where they log in / set a password, then the wizard).
+      onboarded: store.isOnboarded(),
     },
   }));
 

@@ -8,6 +8,10 @@ export interface AppInfo {
   embedded: boolean;
   /** Platform base URL for live appearance sync; '' when standalone. */
   omosBase: string;
+  /** Whether a valid Stripe publishable+secret pair is configured. */
+  donationsConfigured: boolean;
+  /** Whether the admin has completed first-run setup. */
+  onboarded: boolean;
 }
 
 export interface Session {

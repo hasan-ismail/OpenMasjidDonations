@@ -29,6 +29,13 @@ export function App() {
 
   const isAdmin = typeof location !== 'undefined' && location.pathname.replace(/\/+$/, '').startsWith('/admin');
 
+  // First boot: until the admin has finished setup there's nothing for donors to
+  // see, so the landing page sends them straight into the admin setup.
+  const goToSetup = !!info && !info.onboarded && !isAdmin;
+  useEffect(() => {
+    if (goToSetup) window.location.replace('/admin');
+  }, [goToSetup]);
+
   return (
     <div className="shell">
       <Scene />
@@ -37,7 +44,13 @@ export function App() {
         <div className="spacer" />
         <ThemeToggle />
       </header>
-      {isAdmin ? <AdminApp info={info} /> : <PublicHome info={info} reduce={!!reduce} />}
+      {goToSetup ? (
+        <main className="auth-wrap"><span className="spinner" aria-label="Opening setup" /></main>
+      ) : isAdmin ? (
+        <AdminApp info={info} />
+      ) : (
+        <PublicHome info={info} reduce={!!reduce} />
+      )}
     </div>
   );
 }
