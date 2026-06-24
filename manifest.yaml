@@ -42,6 +42,11 @@ sso: true
 # /api/fabric/notify. The app never sees the webhook URL; it fails soft when
 # notifications aren't enabled.
 notifications: true
+# This app uses Stripe's in-page secure card field (Elements), which requires a
+# browser secure context — so it MUST be served over HTTPS. The platform serves
+# it on a dedicated HTTPS port (terminating TLS with the dashboard's cert); this
+# container stays a plain HTTP server and does nothing special for TLS.
+https: true
 
 # No install-time settings — install is one-click, nothing to fill in. Everything
 # (Stripe keys, masjid details, currency) is collected in the app's guided first-run
