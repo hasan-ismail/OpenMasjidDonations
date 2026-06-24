@@ -68,6 +68,9 @@
 
   --scene-base: #020912;
   --scene-gradient: linear-gradient(150deg, #0c3a4d 0%, #082230 48%, #020a12 100%);
+  /* The default scene gradient, fixed (unaffected by data-wallpaper) — used by the
+     campaign preview so an empty background always shows the default look. */
+  --scene-gradient-default: linear-gradient(150deg, #0c3a4d 0%, #082230 48%, #020a12 100%);
   --aurora-cyan: rgba(34, 211, 238, 0.30);
   --aurora-navy: rgba(15, 32, 64, 0.60);
   --aurora-gold: rgba(245, 158, 11, 0.14);
@@ -133,6 +136,7 @@
 
   --scene-base: #EAF6FF;
   --scene-gradient: linear-gradient(150deg, #dbeafe 0%, #eef6ff 50%, #f0f9ff 100%);
+  --scene-gradient-default: linear-gradient(150deg, #dbeafe 0%, #eef6ff 50%, #f0f9ff 100%);
   --aurora-cyan: rgba(2, 132, 199, 0.14);
   --aurora-navy: rgba(186, 230, 253, 0.42);
   --aurora-gold: rgba(217, 119, 6, 0.07);

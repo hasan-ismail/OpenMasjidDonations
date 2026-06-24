@@ -3,10 +3,11 @@
  *  the server and never returned to the browser. */
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-  Bell, CalendarDays, CheckCircle2, Coins, Copy, CreditCard, ExternalLink, Eye, EyeOff, Globe, KeyRound, Landmark,
-  LayoutDashboard, Link2, LogIn, LogOut, Megaphone, Pencil, Plus, ReceiptText, RefreshCw, Settings as SettingsIcon,
-  ShieldCheck, Sparkles, TrendingUp, Trash2, Wallet,
+  Bell, CalendarDays, CheckCircle2, Coins, Copy, CreditCard, ExternalLink, Eye, EyeOff, Globe, HandCoins, KeyRound,
+  Landmark, LayoutDashboard, Link2, LogIn, LogOut, Megaphone, Pencil, Plus, QrCode, ReceiptText, RefreshCw,
+  Settings as SettingsIcon, ShieldCheck, Sparkles, TrendingUp, Trash2, Wallet,
 } from 'lucide-react';
 import {
   checkSlug, completeOnboarding, createAccount, createCampaign, deleteAccount, deleteCampaign, getDonations,
@@ -206,7 +207,7 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
         </div>
 
         {tab === 'overview' && <MetricsDashboard />}
-        {tab === 'campaigns' && <CampaignsCard accounts={settings.stripeAccounts} currency={settings.masjid.currency} />}
+        {tab === 'campaigns' && <CampaignsCard accounts={settings.stripeAccounts} currency={settings.masjid.currency} masjidName={settings.masjid.name} />}
         {tab === 'donations' && <DonationsCard />}
         {tab === 'payments' && (
           <>
@@ -468,12 +469,20 @@ function StripeInstructions() {
 }
 
 // ── Campaigns ───────────────────────────────────────────────────────────────
-function CampaignsCard({ accounts, currency }: { accounts: StripeAccount[]; currency: string }) {
+function CampaignsCard({ accounts, currency, masjidName }: { accounts: StripeAccount[]; currency: string; masjidName: string }) {
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [editId, setEditId] = useState('');
+  // The base for shareable links: the Cloudflare public address when public access is
+  // on, otherwise this device's address. Drives the link text + QR codes below.
+  const [shareBase, setShareBase] = useState('');
   const reload = () => listCampaigns().then(setCampaigns).catch(() => setCampaigns([]));
   useEffect(() => void reload(), []);
+  useEffect(() => {
+    getTunnel()
+      .then((t) => setShareBase(t.enabled && t.publicHostname ? `https://${t.publicHostname}` : originBase()))
+      .catch(() => setShareBase(originBase()));
+  }, []);
 
   const noAccount = accounts.length === 0;
   return (
@@ -490,23 +499,24 @@ function CampaignsCard({ accounts, currency }: { accounts: StripeAccount[]; curr
         {(campaigns ?? []).map((c) => (
           <div key={c.id}>
             <div className="list-row">
+              <CampaignPreview variant="thumb" currency={c.currency} data={c} />
               <div className="list-row__main">
                 <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
                   <span className="list-row__title">{c.title}</span>
                   {c.active ? <span className="status-pill status-pill--ok">Live</span> : <span className="status-pill">Hidden</span>}
                 </div>
-                <CampaignLink url={c.url} />
+                <CampaignLink url={c.url} base={shareBase} />
                 <p className="list-row__sub">{money(c.raised, c.currency)} raised{c.goalAmount ? ` of ${money(c.goalAmount, c.currency)}` : ''}</p>
               </div>
               <button className="icon-btn" title="Edit" onClick={() => setEditId(editId === c.id ? '' : c.id)}><Pencil size={15} /></button>
             </div>
-            {editId === c.id && <CampaignForm campaign={c} accounts={accounts} currency={currency} onDone={() => { setEditId(''); reload(); }} />}
+            {editId === c.id && <CampaignForm campaign={c} accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setEditId(''); reload(); }} />}
           </div>
         ))}
         {campaigns && campaigns.length === 0 && !creating && <p className="muted" style={{ padding: '0.5rem 0' }}>No campaigns yet.</p>}
       </div>
       {creating ? (
-        <CampaignForm accounts={accounts} currency={currency} onDone={() => { setCreating(false); reload(); }} />
+        <CampaignForm accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setCreating(false); reload(); }} />
       ) : (
         <button className="btn btn--primary btn--sm" disabled={noAccount} onClick={() => setCreating(true)}><Plus size={15} /> New campaign</button>
       )}
@@ -514,20 +524,21 @@ function CampaignsCard({ accounts, currency }: { accounts: StripeAccount[]; curr
   );
 }
 
-function CampaignLink({ url }: { url: string }) {
-  const full = typeof location !== 'undefined' ? location.origin + url : url;
+function CampaignLink({ url, base }: { url: string; base: string }) {
+  const full = (base || originBase()) + url;
+  const shown = full.replace(/^https?:\/\//, '');
   const [copied, setCopied] = useState(false);
   const copy = async () => { try { await navigator.clipboard.writeText(full); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
   return (
     <div className="camp-link">
-      <a href={url} target="_blank" rel="noreferrer noopener" className="mono">{url}</a>
+      <a href={full} target="_blank" rel="noreferrer noopener" className="mono">{shown}</a>
       <button className="icon-btn" title="Copy link" onClick={copy}>{copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}</button>
     </div>
   );
 }
 
-function CampaignForm({ campaign, accounts, currency, onDone }: {
-  campaign?: Campaign; accounts: StripeAccount[]; currency: string; onDone: () => void;
+function CampaignForm({ campaign, accounts, currency, masjidName, shareBase, onDone }: {
+  campaign?: Campaign; accounts: StripeAccount[]; currency: string; masjidName: string; shareBase: string; onDone: () => void;
 }) {
   const editing = !!campaign;
   const [title, setTitle] = useState(campaign?.title ?? '');
@@ -541,7 +552,6 @@ function CampaignForm({ campaign, accounts, currency, onDone }: {
   const [minAmount, setMinAmount] = useState(String(campaign?.minAmount ?? 1));
   const [stripeAccountId, setStripeAccountId] = useState(campaign?.stripeAccountId ?? accounts[0]?.id ?? '');
   const [coverFees, setCoverFees] = useState(campaign?.coverFees ?? false);
-  const [giftAid, setGiftAid] = useState(campaign?.giftAid ?? false);
   const [goalAmount, setGoalAmount] = useState(String(campaign?.goalAmount ?? 0));
   const [active, setActive] = useState(campaign?.active ?? true);
   const [busy, setBusy] = useState(false);
@@ -573,7 +583,6 @@ function CampaignForm({ campaign, accounts, currency, onDone }: {
       minAmount: Number(minAmount) || 0,
       stripeAccountId,
       coverFees,
-      giftAid,
       goalAmount: Number(goalAmount) || 0,
       active,
     };
@@ -587,8 +596,21 @@ function CampaignForm({ campaign, accounts, currency, onDone }: {
     try { await deleteCampaign(campaign.id); onDone(); } catch (err) { setError(msg(err)); setDel(false); }
   };
 
+  // Live preview reflects the form as you type; the share URL + QR use the computed
+  // slug and the public (Cloudflare) base when set, else this device's address.
+  const previewPresets = presets.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+  const previewData = {
+    title, description, coverImage, backgroundImage,
+    presetAmounts: previewPresets, allowCustom,
+    goalAmount: Number(goalAmount) || 0, raised: campaign?.raised ?? 0,
+  };
+  const computedSlug = slugifyClient(slug.trim() || title);
+  const shareUrl = computedSlug ? `${shareBase || originBase()}/${computedSlug}` : '';
+
   return (
     <div className="subform glass-inset">
+      <div className="cprev-head"><span className="hint">Live preview</span></div>
+      <CampaignPreview variant="full" data={previewData} currency={currency} masjidName={masjidName} />
       <Field id="ct" label="Title"><input id="ct" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. General Fund, Zakat, Building Fund" /></Field>
       <Field id="cslug" label="Link to share">
         <div className="slug-field">
@@ -597,6 +619,7 @@ function CampaignForm({ campaign, accounts, currency, onDone }: {
         </div>
         <SlugHint info={slugInfo} hasInput={!!(slug.trim() || title.trim())} />
       </Field>
+      {shareUrl && <ShareLink url={shareUrl} isPublic={!!shareBase && /^https:/.test(shareBase)} />}
       <Field id="cd" label="Description (optional)"><textarea id="cd" className="input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <Field id="cimg" label="Cover image URL (optional)"><input id="cimg" className="input" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://  — shown inside the page" /></Field>
       <Field id="cbg" label="Background image URL (optional)">
@@ -615,7 +638,6 @@ function CampaignForm({ campaign, accounts, currency, onDone }: {
       </Field>
       <label className="check-row"><input type="checkbox" checked={allowCustom} onChange={(e) => setAllowCustom(e.target.checked)} /><span>Allow donors to enter their own amount</span></label>
       <label className="check-row"><input type="checkbox" checked={coverFees} onChange={(e) => setCoverFees(e.target.checked)} /><span>Offer donors the option to cover card fees</span></label>
-      <label className="check-row"><input type="checkbox" checked={giftAid} onChange={(e) => setGiftAid(e.target.checked)} /><span>Offer Gift Aid (UK)</span></label>
       <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span>Live (visible to donors)</span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
@@ -671,11 +693,12 @@ function PublicAccessCard() {
   const [t, setT] = useState<TunnelStatus | null>(null);
   const [token, setToken] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [host, setHost] = useState('');
   const [showTok, setShowTok] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const load = () => getTunnel().then((s) => { setT(s); setEnabled(s.enabled); }).catch(() => { /* ignore */ });
+  const load = () => getTunnel().then((s) => { setT(s); setEnabled(s.enabled); setHost(s.publicHostname); }).catch(() => { /* ignore */ });
   useEffect(() => void load(), []);
   // While on, poll so the admin sees starting → connected.
   useEffect(() => {
@@ -687,9 +710,11 @@ function PublicAccessCard() {
   const save = async () => {
     setBusy(true); setError('');
     try {
-      const body: { token?: string; enabled?: boolean } = { enabled };
+      const body: { token?: string; enabled?: boolean; publicHostname?: string } = { enabled, publicHostname: host.trim() };
       if (token.trim()) body.token = token.trim();
-      setT(await saveTunnel(body));
+      const updated = await saveTunnel(body);
+      setT(updated);
+      setHost(updated.publicHostname);
       setToken('');
     } catch (err) { setError(msg(err)); } finally { setBusy(false); }
   };
@@ -724,6 +749,12 @@ function PublicAccessCard() {
           <input id="tok" className="input mono" type={showTok ? 'text' : 'password'} value={token} onChange={(e) => setToken(e.target.value)} placeholder={t?.hasToken ? '•••••••• (unchanged)' : 'eyJ…'} autoComplete="off" spellCheck={false} />
           <button type="button" className="affix-btn" onClick={() => setShowTok((s) => !s)} aria-label={showTok ? 'Hide' : 'Show'}>{showTok ? <EyeOff size={16} /> : <Eye size={16} />}</button>
         </div>
+      </Field>
+      <Field id="pubhost" label="Public address (the domain you set up in Cloudflare)">
+        <input id="pubhost" className="input mono" value={host} onChange={(e) => setHost(e.target.value)} placeholder="give.yourmasjid.org" autoComplete="off" spellCheck={false} />
+        <span className="hint">{host.trim()
+          ? `Your campaign links + QR codes use https://${host.trim().replace(/^https?:\/\//i, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '')}`
+          : 'The public hostname from step 3 above. Used to build your shareable donation links + QR codes.'}</span>
       </Field>
       <label className="check-row"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /><span>Turn on public access</span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
@@ -761,10 +792,83 @@ function Notifications({ embedded }: { embedded: boolean }) {
   );
 }
 
+/** This device's address (scheme + host), or '' when rendered without a window. */
+function originBase(): string {
+  return typeof location !== 'undefined' ? location.origin : '';
+}
+
 /** The host shown as the link prefix (e.g. "give.masjid.org"). Falls back gracefully
  *  when rendered without a window. */
 function linkHost(): string {
   return typeof location !== 'undefined' ? location.host : 'your-masjid';
+}
+
+/** Accept only safe image URLs for a CSS url() / <img>, else ''. Mirrors the donor page. */
+function safeImg(v: string): string {
+  const s = (v ?? '').trim();
+  return /^(https?:\/\/|data:image\/)/i.test(s) && !/["\\\s]/.test(s) ? s : '';
+}
+
+interface PreviewData {
+  title: string; description: string; coverImage: string; backgroundImage: string;
+  presetAmounts: number[]; allowCustom: boolean; goalAmount: number; raised: number;
+}
+
+/** A faithful mini of the public donation page. `full` is the live editor preview;
+ *  `thumb` is the small swatch shown beside each campaign in the list. */
+function CampaignPreview({ data, currency, masjidName, variant }: {
+  data: PreviewData; currency: string; masjidName?: string; variant: 'full' | 'thumb';
+}) {
+  const bg = safeImg(data.backgroundImage);
+  const bgStyle = bg ? { backgroundImage: `url("${bg}")` } : undefined;
+  if (variant === 'thumb') {
+    return (
+      <div className="cprev-thumb" aria-hidden="true">
+        <div className={`cprev-bg${bg ? '' : ' cprev-bg--default'}`} style={bgStyle} />
+        <span className="cprev-thumb-ico"><HandCoins size={15} /></span>
+      </div>
+    );
+  }
+  const fmt = (n: number) => money(n, currency);
+  const presets = (data.presetAmounts.length ? data.presetAmounts : [10, 25, 50, 100]).slice(0, 4);
+  const cover = safeImg(data.coverImage);
+  const pct = data.goalAmount > 0 ? Math.min(100, Math.round((data.raised / data.goalAmount) * 100)) : 0;
+  return (
+    <div className="cprev" aria-label="Live preview of your donation page">
+      <div className={`cprev-bg${bg ? '' : ' cprev-bg--default'}`} style={bgStyle} />
+      <div className="cprev-card glass-raised">
+        {cover && <img className="cprev-cover" src={cover} alt="" />}
+        <div className="cprev-emblem" aria-hidden="true"><HandCoins size={18} /></div>
+        <div className="cprev-title">{data.title || 'Your appeal'}</div>
+        {masjidName && <div className="cprev-sub">{masjidName}</div>}
+        {data.description && <p className="cprev-desc">{data.description}</p>}
+        {data.goalAmount > 0 && <div className="cprev-goal-bar"><div className="cprev-goal-fill" style={{ width: `${pct}%` }} /></div>}
+        <div className="cprev-amounts">
+          {presets.map((p, i) => <span key={i} className={`cprev-amt${i === 0 ? ' is-active' : ''}`}>{fmt(p)}</span>)}
+          {data.allowCustom && <span className="cprev-amt">Other</span>}
+        </div>
+        <div className="cprev-cta">Donate{presets[0] ? ` ${fmt(presets[0])}` : ''}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The shareable link with a QR code. The URL already reflects the public Cloudflare
+ *  domain when public access is on (else this device's address). */
+function ShareLink({ url, isPublic }: { url: string; isPublic: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+  return (
+    <div className="share glass-inset">
+      <div className="share-qr"><QRCodeSVG value={url} size={104} bgColor="#ffffff" fgColor="#0b1220" level="M" marginSize={2} /></div>
+      <div className="share-main">
+        <span className="share-label"><QrCode size={13} /> Share this link</span>
+        <a className="share-url mono" href={url} target="_blank" rel="noreferrer noopener">{url.replace(/^https?:\/\//, '')}</a>
+        <span className="hint">{isPublic ? 'Public link via your Cloudflare domain — scan or share it anywhere.' : 'On your masjid’s network. Turn on public access (Payments tab) for a link that works anywhere.'}</span>
+        <div><button className="btn btn--ghost btn--sm" type="button" onClick={copy}>{copied ? <CheckCircle2 size={14} /> : <Copy size={14} />} Copy link</button></div>
+      </div>
+    </div>
+  );
 }
 
 /** Client-side mirror of the server slugify, for the live preview placeholder. */

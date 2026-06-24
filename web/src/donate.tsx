@@ -110,7 +110,6 @@ function AmountStep({ campaign, onIntent }: { campaign: PublicCampaign; onIntent
   const [customMode, setCustomMode] = useState(false);
   const [custom, setCustom] = useState('');
   const [coverFees, setCoverFees] = useState(false);
-  const [giftAid, setGiftAid] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -133,7 +132,6 @@ function AmountStep({ campaign, onIntent }: { campaign: PublicCampaign; onIntent
       const i = await createIntent(campaign.slug, {
         amount: effective,
         coverFees: coverFees && campaign.coverFees,
-        giftAid: giftAid && campaign.giftAid,
         donorName: name.trim() || undefined,
         donorEmail: email.trim() || undefined,
       });
@@ -202,12 +200,6 @@ function AmountStep({ campaign, onIntent }: { campaign: PublicCampaign; onIntent
           <label className="check-row">
             <input type="checkbox" checked={coverFees} onChange={(e) => setCoverFees(e.target.checked)} />
             <span>Add a little to cover card fees, so the masjid receives the full amount.</span>
-          </label>
-        )}
-        {campaign.giftAid && (
-          <label className="check-row">
-            <input type="checkbox" checked={giftAid} onChange={(e) => setGiftAid(e.target.checked)} />
-            <span>I’m a UK taxpayer — Gift Aid my donation (the masjid can reclaim 25%).</span>
           </label>
         )}
 

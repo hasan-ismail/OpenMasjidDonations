@@ -98,10 +98,13 @@ export interface Donation {
 }
 
 /** Cloudflare Tunnel config. The token is a CREDENTIAL — server-side only, never
- *  returned to the browser or logged. */
+ *  returned to the browser or logged. `publicHostname` is the public address the admin
+ *  set up in Cloudflare (e.g. give.masjid.org); it's not secret and is used to build
+ *  shareable campaign links + QR codes when public access is on. */
 export interface TunnelConfig {
   token: string;
   enabled: boolean;
+  publicHostname: string;
 }
 
 /** Short, URL-safe id with a kind prefix, e.g. "cmp_a1b2c3d4". */
@@ -327,12 +330,16 @@ export class Store {
   // ── Cloudflare Tunnel (optional public access) ──────────────────────────────
   getTunnel(): TunnelConfig {
     const s = this.getJson<TunnelConfig>('tunnel');
-    return { token: s.token ?? '', enabled: s.enabled ?? false };
+    return { token: s.token ?? '', enabled: s.enabled ?? false, publicHostname: s.publicHostname ?? '' };
   }
 
   setTunnel(patch: Partial<TunnelConfig>): TunnelConfig {
     const cur = this.getTunnel();
-    const next: TunnelConfig = { token: patch.token ?? cur.token, enabled: patch.enabled ?? cur.enabled };
+    const next: TunnelConfig = {
+      token: patch.token ?? cur.token,
+      enabled: patch.enabled ?? cur.enabled,
+      publicHostname: patch.publicHostname ?? cur.publicHostname,
+    };
     this.setRaw('tunnel', JSON.stringify(next));
     return next;
   }

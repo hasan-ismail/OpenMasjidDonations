@@ -346,3 +346,40 @@ select.input { appearance: auto; }
 .dock .nav-item:hover { color: var(--color-ink); background: var(--color-surface-hover); }
 .dock .nav-item.is-active { color: var(--color-primary); background: var(--color-primary-subtle); }
 .dock .nav-item:active { transform: scale(0.92); }
+
+/* ── Campaign live preview ────────────────────────────────────────────────── */
+.cprev-head { margin-block-end: 0.4rem; }
+.cprev {
+  position: relative; border-radius: var(--radius-card); overflow: hidden;
+  display: flex; justify-content: center; padding: 1.1rem 1rem;
+  min-height: 12rem; margin-block-end: 0.9rem; box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.cprev-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.cprev-bg--default { background: var(--scene-gradient-default); }
+.cprev-card {
+  position: relative; width: min(18rem, 100%); padding: 1rem 1.1rem; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+}
+.cprev-cover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radius-button); }
+.cprev-emblem { width: 2.4rem; height: 2.4rem; border-radius: 50%; display: grid; place-items: center; color: var(--color-on-primary); background: var(--color-primary); box-shadow: var(--glow-primary); }
+.cprev-title { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+.cprev-sub { font-size: 0.76rem; color: var(--color-ink-muted); margin-block-start: -0.25rem; }
+.cprev-desc { font-size: 0.8rem; color: var(--color-ink-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cprev-goal-bar { width: 100%; height: 0.4rem; border-radius: 999px; background: var(--glass-bg-inset); box-shadow: inset 0 0 0 1px var(--color-border); overflow: hidden; }
+.cprev-goal-fill { height: 100%; border-radius: 999px; background: var(--color-primary); }
+.cprev-amounts { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; }
+.cprev-amt { font-size: 0.76rem; font-weight: 700; padding: 0.3rem 0.55rem; border-radius: 0.5rem; border: 1px solid var(--color-border); background: var(--glass-bg-inset); color: var(--color-ink); }
+.cprev-amt.is-active { background: var(--color-primary); color: var(--color-on-primary); border-color: transparent; }
+.cprev-cta { width: 100%; margin-block-start: 0.2rem; padding: 0.5rem; border-radius: var(--radius-button); background: var(--color-btn); color: var(--color-on-primary); font-weight: 600; font-size: 0.85rem; box-shadow: var(--glow-primary); }
+
+/* Thumbnail swatch beside each campaign in the list */
+.cprev-thumb { position: relative; width: 3.4rem; height: 2.6rem; border-radius: 0.6rem; overflow: hidden; flex-shrink: 0; box-shadow: inset 0 0 0 1px var(--color-border); }
+.cprev-thumb-ico { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
+
+/* ── Shareable link + QR code ─────────────────────────────────────────────── */
+.share { display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.8rem; margin-block: 0.2rem 0.8rem; }
+.share-qr { background: #fff; padding: 0.4rem; border-radius: 0.5rem; line-height: 0; flex-shrink: 0; }
+.share-main { min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.share-label { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--color-ink-muted); }
+.share-url { font-size: 0.82rem; word-break: break-all; }
+@media (max-width: 480px) { .share { flex-direction: column; align-items: center; text-align: center; } .share-main { align-items: center; } }

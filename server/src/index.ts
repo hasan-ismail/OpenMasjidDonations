@@ -274,17 +274,31 @@ async function main(): Promise<void> {
   });
 
   // ── Cloudflare Tunnel (optional public access; token is a server-side secret) ─
-  const TunnelBody = z.object({ token: z.string().max(4000).optional(), enabled: z.boolean().optional() });
-  app.get('/api/admin/tunnel', { preHandler: requireAdmin }, async () => {
-    const t = store.getTunnel();
-    return { data: { hasToken: !!t.token, ...tunnel.status() } };
+  // Reduce a pasted value to a bare hostname (strip scheme, port, path); '' if invalid.
+  const cleanHostname = (s: string): string => {
+    const h = s.trim().replace(/^https?:\/\//i, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').toLowerCase();
+    return /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(h) && h.includes('.') ? h : '';
+  };
+  const TunnelBody = z.object({
+    token: z.string().max(4000).optional(),
+    enabled: z.boolean().optional(),
+    publicHostname: z.string().max(255).optional(),
   });
+  const tunnelView = () => {
+    const t = store.getTunnel();
+    return { hasToken: !!t.token, publicHostname: t.publicHostname, ...tunnel.status() };
+  };
+  app.get('/api/admin/tunnel', { preHandler: requireAdmin }, async () => ({ data: tunnelView() }));
   app.put('/api/admin/tunnel', { preHandler: requireAdmin }, async (req, reply) => {
     const parsed = TunnelBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Please check the details.' });
-    const t = store.setTunnel({ token: parsed.data.token?.trim(), enabled: parsed.data.enabled });
+    const t = store.setTunnel({
+      token: parsed.data.token?.trim(),
+      enabled: parsed.data.enabled,
+      publicHostname: parsed.data.publicHostname != null ? cleanHostname(parsed.data.publicHostname) : undefined,
+    });
     tunnel.apply(t.token, t.enabled); // never echoes the token back
-    return { data: { hasToken: !!t.token, ...tunnel.status() } };
+    return { data: tunnelView() };
   });
 
   // ── Stripe accounts (multiple — e.g. Zakat vs general) ──────────────────────

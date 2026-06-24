@@ -266,11 +266,13 @@ export const confirmDonation = (body: { paymentIntentId: string; slug: string; t
 export interface TunnelStatus {
   hasToken: boolean;
   enabled: boolean;
+  /** Public address set up in Cloudflare (e.g. give.masjid.org); '' if none. */
+  publicHostname: string;
   state: 'stopped' | 'starting' | 'running' | 'error';
   message: string;
 }
 export const getTunnel = () => request<TunnelStatus>('/api/admin/tunnel');
-export const saveTunnel = (body: { token?: string; enabled?: boolean }) =>
+export const saveTunnel = (body: { token?: string; enabled?: boolean; publicHostname?: string }) =>
   request<TunnelStatus>('/api/admin/tunnel', { method: 'PUT', body: JSON.stringify(body) });
 
 /** Format a major-unit amount in the given currency, e.g. 50 GBP → "£50.00". */
