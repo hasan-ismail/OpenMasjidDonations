@@ -13,6 +13,11 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
+# ---- cloudflared (for the optional Cloudflare Tunnel public-access feature) -
+# Taken from the official multi-arch image, pinned by version. No --platform
+# override, so it's pulled for the TARGET arch (arm64 build → arm64 binary).
+FROM cloudflare/cloudflared:2026.6.1 AS cloudflared
+
 # ---- Compile the server (TypeScript → dist) --------------------------------
 FROM --platform=$BUILDPLATFORM node:22-slim AS server
 WORKDIR /server
@@ -46,6 +51,11 @@ RUN npm ci --omit=dev
 
 COPY --from=server /server/dist ./dist
 COPY --from=web /web/dist ./public
+
+# The Cloudflare Tunnel daemon. The app launches + supervises it ONLY when the admin
+# saves a tunnel token (optional public access without port-forwarding). It makes
+# outbound connections only — no inbound ports, no extra privileges.
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
 ENV PORT=8080 \
     DATA_DIR=/data \

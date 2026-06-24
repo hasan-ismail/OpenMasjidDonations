@@ -17,6 +17,7 @@ import type { Campaign, StripeAccount } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
 import { notify, platformUser } from './fabric';
 import { LoginLimiter } from './rateLimit';
+import { TunnelManager } from './tunnel';
 import {
   createPaymentIntent,
   currencyDecimals,
@@ -53,6 +54,7 @@ function formatMoney(minor: number, currency: string): string {
 async function main(): Promise<void> {
   const store = new Store();
   const loginLimiter = new LoginLimiter();
+  const tunnel = new TunnelManager();
 
   const app = Fastify({
     logger: false, // we log ourselves and never log secrets
@@ -236,6 +238,20 @@ async function main(): Promise<void> {
   app.post('/api/settings/complete-onboarding', { preHandler: requireAdmin }, async () => {
     store.setOnboarded();
     return { data: { ok: true } };
+  });
+
+  // ── Cloudflare Tunnel (optional public access; token is a server-side secret) ─
+  const TunnelBody = z.object({ token: z.string().max(4000).optional(), enabled: z.boolean().optional() });
+  app.get('/api/admin/tunnel', { preHandler: requireAdmin }, async () => {
+    const t = store.getTunnel();
+    return { data: { hasToken: !!t.token, ...tunnel.status() } };
+  });
+  app.put('/api/admin/tunnel', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = TunnelBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the details.' });
+    const t = store.setTunnel({ token: parsed.data.token?.trim(), enabled: parsed.data.enabled });
+    tunnel.apply(t.token, t.enabled); // never echoes the token back
+    return { data: { hasToken: !!t.token, ...tunnel.status() } };
   });
 
   // ── Stripe accounts (multiple — e.g. Zakat vs general) ──────────────────────
@@ -558,8 +574,13 @@ async function main(): Promise<void> {
   log.info(`OpenMasjid Donations listening on http://${config.host}:${config.port}`);
   log.info(ssoConfigured() ? 'running embedded under OpenMasjidOS (Fabric available)' : 'running standalone (local password)');
 
+  // Bring up the Cloudflare Tunnel if the admin has enabled it (no-op otherwise).
+  const tcfg = store.getTunnel();
+  tunnel.apply(tcfg.token, tcfg.enabled);
+
   const shutdown = () => {
     log.info('shutting down');
+    tunnel.stop();
     store.close();
     app.close().finally(() => setTimeout(() => process.exit(0), 200));
   };

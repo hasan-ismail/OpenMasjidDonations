@@ -91,7 +91,8 @@ must not be renamed.
    declaration/address capture + optional email receipt are follow-ups.)
 7. Recurring (monthly) subscriptions (+ optional webhook path). ⏳
 8. Donations log + stats + CSV export. ✅
-9. Cloudflare Tunnel helper (bundled `cloudflared`, in-app token) for public access. ⏳
+9. Cloudflare Tunnel helper (bundled `cloudflared`, in-app token, supervised) for
+   public access — no port-forwarding. ✅
 9. Appearance/theming polish, animations, friendly errors.
 10. README/screenshots/docs; tag `v0.1.0`; add the `registry.yaml` entry to
     OpenMasjidAPPS (move `donations` out of `coming_soon`).

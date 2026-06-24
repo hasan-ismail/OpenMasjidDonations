@@ -16,8 +16,9 @@ Raspberry Pi, on your masjid's own network.
 > (each with its own shareable `/c/<slug>-<token>` link, preset + custom amounts,
 > optional goal/cover-fees/Gift-Aid), the **public donation page** with Stripe's
 > Payment Element (one-time card payments, confirmed by server-side retrieve), and a
-> **donations log + CSV export**. Still to come: recurring (monthly) donations and the
-> Cloudflare Tunnel helper for public access (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
+> **donations log + CSV export**, and an optional **Cloudflare Tunnel** for public
+> access (paste a tunnel token — secure HTTPS, no port-forwarding). Still to come:
+> recurring (monthly) donations (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
 
 ---
 

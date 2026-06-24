@@ -3,15 +3,15 @@
  *  the server and never returned to the browser. */
 import { useEffect, useState } from 'react';
 import {
-  Bell, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, KeyRound, Landmark, LogIn, LogOut, Megaphone,
+  Bell, CheckCircle2, Copy, ExternalLink, Eye, EyeOff, Globe, KeyRound, Landmark, LogIn, LogOut, Megaphone,
   Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Wallet,
 } from 'lucide-react';
 import {
   completeOnboarding, createAccount, createCampaign, deleteAccount, deleteCampaign, getDonations, getSession,
-  getSettings, listCampaigns, login, logout, money, saveMasjid, sendTestNotification, setupAdmin, testAccount,
-  updateAccount, updateCampaign,
+  getSettings, getTunnel, listCampaigns, login, logout, money, saveMasjid, saveTunnel, sendTestNotification,
+  setupAdmin, testAccount, updateAccount, updateCampaign,
   type AccountInput, type AppInfo, type Campaign, type CampaignInput, type DonationsResult, type MasjidProfile,
-  type Session, type Settings, type StripeAccount, type VerifyResult,
+  type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
 } from './api';
 
 const SOURCE_URL = 'https://github.com/hasan-ismail/OpenMasjidDonations';
@@ -162,6 +162,7 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
       <StripeAccountsCard accounts={settings.stripeAccounts} onChanged={onReload} />
       <DonationsCard />
       <MasjidCard masjid={settings.masjid} onSaved={onReload} />
+      <PublicAccessCard />
       <Notifications embedded={embedded} />
       <section className="glass panel">
         <div className="row-between">
@@ -489,6 +490,75 @@ function DonationsCard() {
           </table>
         </div>
       )}
+    </section>
+  );
+}
+
+// ── Public access (Cloudflare Tunnel) ─────────────────────────────────────────
+function PublicAccessCard() {
+  const [t, setT] = useState<TunnelStatus | null>(null);
+  const [token, setToken] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [showTok, setShowTok] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = () => getTunnel().then((s) => { setT(s); setEnabled(s.enabled); }).catch(() => { /* ignore */ });
+  useEffect(() => void load(), []);
+  // While on, poll so the admin sees starting → connected.
+  useEffect(() => {
+    if (!t?.enabled) return;
+    const iv = window.setInterval(() => void load(), 4000);
+    return () => window.clearInterval(iv);
+  }, [t?.enabled]);
+
+  const save = async () => {
+    setBusy(true); setError('');
+    try {
+      const body: { token?: string; enabled?: boolean } = { enabled };
+      if (token.trim()) body.token = token.trim();
+      setT(await saveTunnel(body));
+      setToken('');
+    } catch (err) { setError(msg(err)); } finally { setBusy(false); }
+  };
+
+  const dot = t?.state === 'running' ? '' : t?.state === 'error' ? ' status-dot--warn' : ' status-dot--idle';
+  const stateText = !t ? ''
+    : t.state === 'running' ? 'Connected — reachable publicly'
+    : t.state === 'starting' ? 'Connecting…'
+    : t.state === 'error' ? (t.message || 'Disconnected')
+    : 'Off';
+
+  return (
+    <section className="glass panel">
+      <div className="card-head">
+        <Globe size={18} className="panel-ico" aria-hidden="true" />
+        <div className="card-head__main">
+          <h2 className="section-title-inline">Public access (Cloudflare Tunnel)</h2>
+          <p className="muted">Optional — take donations from outside the masjid network over secure HTTPS, with no port-forwarding. Only enable this if you want your donation links reachable on the public internet.</p>
+        </div>
+      </div>
+      <details className="steps-details">
+        <summary>How to set up a tunnel</summary>
+        <ol className="steps">
+          <li>Create a free <a href="https://dash.cloudflare.com" target="_blank" rel="noreferrer noopener">Cloudflare account <ExternalLink size={11} /></a> and add a domain.</li>
+          <li>Go to <b>Zero Trust → Networks → Tunnels</b> → <b>Create a tunnel</b> (Cloudflared).</li>
+          <li>Add a <b>Public hostname</b> (e.g. <code>give.yourmasjid.org</code>) → service <code>http://localhost:8080</code>.</li>
+          <li>Copy the tunnel’s <b>token</b>, paste it below, and turn it on.</li>
+        </ol>
+      </details>
+      <Field id="tok" label={t?.hasToken ? 'Tunnel token — saved; blank keeps it' : 'Tunnel token'}>
+        <div className="input-affix">
+          <input id="tok" className="input mono" type={showTok ? 'text' : 'password'} value={token} onChange={(e) => setToken(e.target.value)} placeholder={t?.hasToken ? '•••••••• (unchanged)' : 'eyJ…'} autoComplete="off" spellCheck={false} />
+          <button type="button" className="affix-btn" onClick={() => setShowTok((s) => !s)} aria-label={showTok ? 'Hide' : 'Show'}>{showTok ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+        </div>
+      </Field>
+      <label className="check-row"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /><span>Turn on public access</span></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
+        <span className="row" style={{ gap: '0.45rem' }}>{t && <><span className={`status-dot${dot}`} /><span className="hint">{stateText}</span></>}</span>
+        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} Save</button>
+      </div>
     </section>
   );
 }

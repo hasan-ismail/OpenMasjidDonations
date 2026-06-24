@@ -93,6 +93,13 @@ export interface Donation {
   createdAt: string;
 }
 
+/** Cloudflare Tunnel config. The token is a CREDENTIAL — server-side only, never
+ *  returned to the browser or logged. */
+export interface TunnelConfig {
+  token: string;
+  enabled: boolean;
+}
+
 /** Short, URL-safe id with a kind prefix, e.g. "cmp_a1b2c3d4". */
 export function rid(prefix: string): string {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
@@ -290,6 +297,19 @@ export class Store {
 
   setOnboarded(): void {
     this.setRaw('onboarded', '1');
+  }
+
+  // ── Cloudflare Tunnel (optional public access) ──────────────────────────────
+  getTunnel(): TunnelConfig {
+    const s = this.getJson<TunnelConfig>('tunnel');
+    return { token: s.token ?? '', enabled: s.enabled ?? false };
+  }
+
+  setTunnel(patch: Partial<TunnelConfig>): TunnelConfig {
+    const cur = this.getTunnel();
+    const next: TunnelConfig = { token: patch.token ?? cur.token, enabled: patch.enabled ?? cur.enabled };
+    this.setRaw('tunnel', JSON.stringify(next));
+    return next;
   }
 
   // ── Legacy migration: fold the old single Stripe config into an account ─────

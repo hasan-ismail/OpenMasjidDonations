@@ -35,6 +35,9 @@ export const config = {
   publicDir: env('PUBLIC_DIR', path.resolve(__dirname, '..', 'public')),
   version: readVersion(),
 
+  /** The cloudflared binary (bundled in the image). Overridable for local dev. */
+  cloudflaredBin: env('CLOUDFLARED_BIN', 'cloudflared'),
+
   /** OpenMasjidOS Fabric (the platform↔app appearance + SSO layer). Injected by the
    *  platform at install and empty on a standalone install, where the app uses its
    *  own appearance + own login. The wire identifiers (env var names, header,

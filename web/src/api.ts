@@ -217,6 +217,17 @@ export const createIntent = (
 export const confirmDonation = (body: { paymentIntentId: string; slug: string; token: string }) =>
   request<ConfirmResponse>('/api/public/confirm', { method: 'POST', body: JSON.stringify(body) });
 
+// ── Cloudflare Tunnel (public access) ───────────────────────────────────────
+export interface TunnelStatus {
+  hasToken: boolean;
+  enabled: boolean;
+  state: 'stopped' | 'starting' | 'running' | 'error';
+  message: string;
+}
+export const getTunnel = () => request<TunnelStatus>('/api/admin/tunnel');
+export const saveTunnel = (body: { token?: string; enabled?: boolean }) =>
+  request<TunnelStatus>('/api/admin/tunnel', { method: 'PUT', body: JSON.stringify(body) });
+
 /** Format a major-unit amount in the given currency, e.g. 50 GBP → "£50.00". */
 export function money(amount: number, currency: string): string {
   try {
