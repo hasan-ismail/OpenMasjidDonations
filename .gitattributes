@@ -1,0 +1,8 @@
+# Normalise all text files to LF — everything ends up in a Linux container, and it
+# keeps diffs against the OpenMasjidDisplay template line-ending-clean.
+* text=auto eol=lf
+# Be explicit for the files that must run inside the container.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf

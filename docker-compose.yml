@@ -1,0 +1,47 @@
+# OpenMasjid Donations — one container that runs everything: the donation site,
+# the admin panel, the API, and the SQLite data store. One image to install, one
+# to update. It stays least-privilege: no privileged mode, no host networking, no
+# devices, no Docker socket.
+#
+# Nothing to configure at install time: install it, open it, sign in, then add
+# your Stripe keys and your first appeal inside the app (saved to /data). You can
+# optionally pre-fill Stripe keys via the install settings instead.
+services:
+  app:
+    image: ghcr.io/hasan-ismail/openmasjiddonations:0.1.0
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      DATA_DIR: /data
+      # OpenMasjidOS Fabric: the platform writes these into the app's .env and runs
+      # compose with --env-file, which only feeds ${VAR} SUBSTITUTION — so they must
+      # be referenced here to actually reach the container (appearance/SSO +
+      # notifications). Empty defaults keep a standalone `docker compose up` quiet.
+      OPENMASJID_BASE_URL: ${OPENMASJID_BASE_URL:-}
+      OPENMASJID_APP_ID: ${OPENMASJID_APP_ID:-}
+      OPENMASJID_APP_SECRET: ${OPENMASJID_APP_SECRET:-}
+      # Optional install settings (also settable in the admin panel). Delivered the
+      # same way — ${KEY} substitution from the platform-written .env. The secret
+      # key is read server-side only and never sent to the browser.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      CURRENCY: ${CURRENCY:-}
+    ports:
+      # host:container. OpenMasjidOS offers "Open" on the lowest published port and
+      # picks a different free host port automatically if 7870 is already taken.
+      - "7870:8080"
+    volumes:
+      - data:/data
+    # Least-privilege hardening that is safe alongside the named data volume. (Full
+    # non-root + read-only rootfs needs an entrypoint to chown the volume and is
+    # planned once validated in CI; the container otherwise mirrors Display.)
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+
+volumes:
+  data:

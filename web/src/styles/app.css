@@ -1,0 +1,155 @@
+/* Base + components for OpenMasjid Donations. Layout uses logical properties so it
+   works LTR and RTL. Mirrors the OpenMasjidOS / Display look; values come from
+   tokens.css — no raw hex here. */
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--scene-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#root { min-height: 100vh; min-height: 100dvh; }
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; cursor: pointer; }
+a { color: var(--color-primary); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: 4px; }
+h1, h2, h3, p { margin: 0; }
+
+/* ── Ambient scene ──────────────────────────────────────────────────────── */
+.scene { position: fixed; inset: 0; z-index: -1; background: var(--scene-gradient); overflow: hidden; }
+.scene::before {
+  content: ""; position: absolute; inset: -30%;
+  background:
+    radial-gradient(40% 50% at 20% 25%, var(--aurora-cyan), transparent 70%),
+    radial-gradient(45% 55% at 80% 20%, var(--aurora-navy), transparent 70%),
+    radial-gradient(50% 50% at 60% 85%, var(--aurora-gold), transparent 75%);
+  filter: blur(var(--aurora-blur)); will-change: transform;
+  animation: auroraDrift 32s ease-in-out infinite alternate;
+}
+@keyframes auroraDrift {
+  0% { transform: translate3d(0,0,0) scale(1); }
+  50% { transform: translate3d(2.5%,-2%,0) scale(1.08) rotate(1.2deg); }
+  100% { transform: translate3d(-2%,2.5%,0) scale(1.04) rotate(-1deg); }
+}
+.scene::after {
+  content: ""; position: absolute; inset: 0;
+  background-image: var(--geometric-pattern); opacity: var(--pattern-opacity);
+  box-shadow: inset 0 0 240px 80px var(--scene-vignette);
+}
+@media (prefers-reduced-motion: reduce) { .scene::before { animation: none; } }
+
+/* ── Shell + top bar ──────────────────────────────────────────────────────── */
+.shell { min-height: 100vh; min-height: 100dvh; }
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.85rem 1.1rem; max-width: 1080px; margin-inline: auto;
+}
+.brand { display: flex; align-items: center; gap: 0.6rem; color: var(--color-primary); font-weight: 700; }
+.brand b { color: var(--color-ink); font-family: var(--font-display); letter-spacing: -0.01em; }
+.spacer { flex: 1; }
+.icon-btn {
+  width: 2.2rem; height: 2.2rem; border-radius: 0.6rem; display: grid; place-items: center;
+  background: transparent; border: 0; color: var(--color-ink-muted);
+  transition: color var(--dur-micro) ease, background-color var(--dur-micro) ease, transform var(--dur-micro) var(--ease-settle);
+}
+.icon-btn:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.icon-btn:active { transform: scale(0.94); }
+
+/* ── Hero / themed shell ──────────────────────────────────────────────────── */
+.hero {
+  min-height: calc(100vh - 4rem); min-height: calc(100dvh - 4rem);
+  display: grid; place-items: center; padding: 1.5rem 1.1rem 3rem;
+}
+.hero-card {
+  width: min(34rem, 100%); padding: 2.4rem 2rem;
+  text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
+}
+.hero-emblem {
+  width: 4.2rem; height: 4.2rem; border-radius: 50%;
+  display: grid; place-items: center; color: var(--color-on-primary);
+  background: var(--color-primary); box-shadow: var(--glow-primary);
+}
+.hero-title { font-family: var(--font-display); font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; }
+.hero-lead { color: var(--color-ink-muted); line-height: 1.6; max-width: 30rem; }
+.hero-note {
+  display: flex; align-items: center; gap: 0.55rem; text-align: start;
+  padding: 0.65rem 0.9rem; border-radius: var(--radius-button);
+  background: var(--glass-bg-inset); box-shadow: inset 0 0 0 1px var(--color-border);
+  color: var(--color-ink-muted); font-size: 0.86rem;
+}
+.hero-note svg { color: var(--color-primary); flex-shrink: 0; }
+.hero-foot { font-size: 0.8rem; margin-block-start: 0.35rem; }
+
+/* ── Buttons (ready for later slices) ─────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  padding: 0.55rem 1rem; border: 0; border-radius: var(--radius-button); font-weight: 600;
+  background: var(--color-surface-hover); color: var(--color-ink);
+  transition: transform var(--dur-micro) var(--ease-settle), background-color var(--dur-micro) ease, opacity var(--dur-micro) ease;
+}
+.btn:hover { background: var(--color-surface-overlay); }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--primary { background: var(--color-btn); color: var(--color-on-primary); box-shadow: var(--glow-primary); }
+.btn--primary:hover { background: var(--color-btn-hover); }
+.btn--ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--color-border); }
+.btn--ghost:hover { background: var(--color-surface-hover); }
+
+/* ── Shared helpers ───────────────────────────────────────────────────────── */
+.muted { color: var(--color-ink-muted); }
+.faint { color: var(--color-ink-faint); }
+.panel { padding: 1.1rem 1.2rem; margin-block-end: 1rem; }
+.row { display: flex; align-items: center; gap: 0.6rem; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.btn--sm { padding: 0.4rem 0.7rem; font-size: 0.85rem; }
+.btn--block { width: 100%; }
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+.spinner {
+  width: 1.05rem; height: 1.05rem; border-radius: 50%;
+  border: 2px solid var(--color-border); border-top-color: var(--color-primary);
+  animation: spin 0.7s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
+
+/* ── Forms ──────────────────────────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 0.35rem; margin-block-end: 0.9rem; }
+.label { font-size: 0.82rem; font-weight: 600; color: var(--color-ink-muted); }
+.input {
+  width: 100%; padding: 0.6rem 0.8rem; border-radius: var(--radius-button);
+  color: var(--color-ink); font: inherit;
+  background: var(--glass-bg-inset); border: 1px solid var(--color-border);
+}
+.input::placeholder { color: var(--color-ink-faint); }
+.hint { font-size: 0.82rem; color: var(--color-ink-faint); }
+.form-error { color: var(--color-danger); font-size: 0.85rem; margin-block: 0.25rem 0.6rem; }
+
+/* ── Auth (login / setup / SSO prompt) ────────────────────────────────────── */
+.auth-wrap {
+  min-height: calc(100vh - 4rem); min-height: calc(100dvh - 4rem);
+  display: grid; place-items: center; padding: 1.5rem 1.1rem 3rem;
+}
+.auth-card { width: min(24rem, 100%); padding: 2rem; text-align: center; }
+.auth-logo {
+  width: 3.6rem; height: 3.6rem; border-radius: 50%; margin: 0 auto 1rem;
+  display: grid; place-items: center; color: var(--color-on-primary);
+  background: var(--color-primary); box-shadow: var(--glow-primary);
+}
+.auth-title { font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em; }
+.auth-sub { margin-block: 0.4rem 1.2rem; font-size: 0.92rem; line-height: 1.5; }
+.auth-card form { text-align: start; }
+
+/* ── Admin area ───────────────────────────────────────────────────────────── */
+.admin { max-width: 720px; margin-inline: auto; padding: 0.5rem 1.1rem 6rem; }
+.page-head { margin-block: 0.5rem 1.25rem; }
+.page-title { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; }
+.page-sub { color: var(--color-ink-muted); margin-block-start: 0.25rem; font-size: 0.95rem; }
+.section-title-inline { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; }
+.panel-ico { color: var(--color-primary); flex-shrink: 0; align-self: flex-start; margin-block-start: 0.1rem; }
+.admin-foot { margin-block-start: 1.5rem; text-align: center; font-size: 0.8rem; }
+.admin-foot a { display: inline-flex; align-items: center; gap: 0.2rem; }

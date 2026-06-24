@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="OpenMasjid Donations">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F2040"/>
+      <stop offset="0.55" stop-color="#0A1828"/>
+      <stop offset="1" stop-color="#030D1A"/>
+    </linearGradient>
+    <linearGradient id="hands" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F6C453"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.34" r="0.7">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <rect x="8.75" y="8.75" width="238.5" height="238.5" rx="55.25" fill="none" stroke="#7DC8E8" stroke-opacity="0.18" stroke-width="1.5"/>
+  <circle cx="128" cy="100" r="94" fill="url(#glow)"/>
+
+  <!-- Crescent finial -->
+  <g transform="translate(0,30)">
+    <path d="M128 26c4 0 7.6 1.6 10.2 4.2A14 14 0 0 0 128 54a14 14 0 0 0 10.2-3.6A14.4 14.4 0 0 1 128 26Z" fill="#F59E0B"/>
+  </g>
+
+  <!-- Mihrab arch niche -->
+  <path d="M88 212 V126 a40 40 0 0 1 80 0 V212 Z" fill="#0E1B30"/>
+  <path d="M88 212 V126 a40 40 0 0 1 80 0 V212" fill="none" stroke="#22D3EE" stroke-opacity="0.5" stroke-width="1.5"/>
+
+  <!-- The gift: a heart, rising/given -->
+  <path d="M128 150c-13-9.5-23-17.5-23-28a11 11 0 0 1 23-4.4 11 11 0 0 1 23 4.4c0 10.5-10 18.5-23 28Z" fill="url(#heart)"/>
+  <circle cx="128" cy="118" r="34" fill="#F59E0B" opacity="0.10"/>
+
+  <!-- Cupped hands cradling the gift (generosity / sadaqah) -->
+  <path d="M86 176c8 18 24 29 42 29s34-11 42-29c-12 7-26 10.5-42 10.5S98 183 86 176Z" fill="url(#hands)"/>
+  <g fill="none" stroke="url(#hands)" stroke-width="6" stroke-linecap="round" opacity="0.9">
+    <path d="M88 178c-4-6-7-12-7-19"/>
+    <path d="M168 178c4-6 7-12 7-19"/>
+  </g>
+</svg>

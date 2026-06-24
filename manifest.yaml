@@ -1,0 +1,80 @@
+id: donations
+name: OpenMasjid Donations
+tagline: Take card donations on your masjid's network with Stripe
+category: donations
+version: 0.1.0
+author: hasan-ismail
+license: AGPL-3.0
+icon: icon.svg
+screenshots:
+  - screenshots/1.svg
+description: |
+  **OpenMasjid Donations** gives your masjid a beautiful, self-hosted donation
+  website powered by **Stripe**. Put it on a screen by the door with a QR code, or
+  open it on any phone — a supporter picks a cause, chooses a preset or their own
+  amount (one-time or monthly), and pays securely by card.
+
+  - **Appeals you control** — create as many as you like (General Fund, Zakat,
+    Building Fund, Ramadan Appeal…), each with its own wording, images, preset
+    amounts and an optional goal.
+  - **Preset *and* custom amounts** — clear suggested buttons plus a "choose your
+    own" field, one-time or monthly.
+  - **Card payments, on your own page** — powered by Stripe's secure card field.
+    Your masjid's card details and keys stay on your device; supporters' card
+    numbers go straight to Stripe and never touch this app.
+  - **A simple admin panel** — manage appeals, see your donations and totals,
+    export a spreadsheet, and set your theme to match the rest of OpenMasjidOS.
+
+  **Nothing to fill in here — just install.** When it's running, click **Open** —
+  it signs you in with your OpenMasjidOS login and matches your dashboard's
+  light/dark look and wallpaper. Then add your Stripe keys and your first appeal
+  inside the app. It runs happily on a Raspberry Pi or mini-PC, on your masjid's
+  own network.
+
+  You can optionally enter your Stripe keys here at install time, or set them later
+  in the app — either way works.
+
+# OpenMasjidOS Fabric: opt into single sign-on. The platform issues this app a
+# per-app secret at install (OPENMASJID_APP_SECRET) and honours its identity-bound
+# /api/auth/session calls, so "Open" signs you in with your OpenMasjidOS login.
+# The app still works fully standalone (its own admin password) when the Fabric is
+# absent. The compose MUST reference the injected vars in `environment:` (it does).
+sso: true
+# Opt into Fabric notifications so the app can relay alerts — e.g. "A new donation
+# of £50 was received" — to the masjid's configured webhook via POST
+# /api/fabric/notify. The app never sees the webhook URL; it fails soft when
+# notifications aren't enabled.
+notifications: true
+
+# Optional install settings. Keeping these optional means install stays one-click —
+# Stripe can be configured later in the admin panel. The platform writes the user's
+# answers to the app's .env and substitutes ${KEY} in docker-compose.yml.
+settings:
+  - key: STRIPE_PUBLISHABLE_KEY
+    label: Stripe publishable key
+    type: text
+    required: false
+    default: ""
+    description: "Starts with pk_. You can also set this inside the app later."
+  - key: STRIPE_SECRET_KEY
+    label: Stripe secret key
+    type: password
+    required: false
+    default: ""
+    description: "Starts with sk_. Stored on your device, never shared, never shown in the browser."
+  - key: STRIPE_WEBHOOK_SECRET
+    label: Stripe webhook secret
+    type: password
+    required: false
+    default: ""
+    description: "Optional. Only needed if you expose donations publicly to receive Stripe webhooks."
+  - key: CURRENCY
+    label: Currency
+    type: text
+    required: false
+    default: "GBP"
+    description: "ISO currency code, e.g. GBP, USD, EUR. You can change this in the app."
+
+ports:
+  - container: 8080
+    label: Donations site

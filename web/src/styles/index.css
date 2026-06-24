@@ -1,0 +1,9 @@
+/* Token system first (mirrors OpenMasjidOS), then glass material, then our base +
+   components, then Tailwind's additive utilities (preflight is disabled in the
+   Tailwind config so it doesn't fight the hand-written base styles). */
+@import './tokens.css';
+@import './glass.css';
+@import './app.css';
+
+@tailwind components;
+@tailwind utilities;
