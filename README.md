@@ -1,4 +1,26 @@
-# OpenMasjid Donations
+<h1 align="center"><b>OpenMasjid Donations</b></h1>
+
+<p align="center">
+  <a href="#install-the-easy-way">Install Guide</a> |
+  <a href="#develop">Develop</a> |
+  <a href="#how-its-built">How it's built</a>
+</p>
+
+<div align="center">
+  <a href="https://github.com/OpenMasjid-Solutions/OpenMasjidDonations/releases">
+    <img src="https://img.shields.io/github/v/release/OpenMasjid-Solutions/OpenMasjidDonations?style=flat-square&color=blue" alt="Latest Release" />
+  </a>
+  <a href="https://github.com/OpenMasjid-Solutions/OpenMasjidDonations">
+    <img src="https://img.shields.io/github/stars/OpenMasjid-Solutions/OpenMasjidDonations?style=flat-square&color=blue" alt="Stars" />
+  </a>
+  <a href="https://discord.gg/MpPDbyQfaF">
+    <img src="https://img.shields.io/badge/Discord-Join-blue?style=flat-square&logo=discord" alt="Discord" />
+  </a>
+</div>
+
+<h5 align="center">
+Leave a star if you like the project! ⭐️
+</h5>
 
 A beautiful, **self-hosted donation website** for your masjid, powered by **Stripe** —
 part of the [OpenMasjid](https://github.com/OpenMasjid-Solutions/OpenMasjidOS) family.
