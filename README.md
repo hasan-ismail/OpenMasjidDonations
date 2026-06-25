@@ -1,7 +1,7 @@
 # OpenMasjid Donations
 
 A beautiful, **self-hosted donation website** for your masjid, powered by **Stripe** —
-part of the [OpenMasjid](https://github.com/hasan-ismail/OpenMasjidOS) family.
+part of the [OpenMasjid](https://github.com/OpenMasjid-Solutions/OpenMasjidOS) family.
 
 Put it on a screen by the door with a QR code, or open it on any phone. A supporter
 picks a cause, chooses a **preset or custom amount** (one-time or monthly), and pays
@@ -33,7 +33,7 @@ Raspberry Pi, on your masjid's own network.
 
 ## Install (the easy way)
 
-Install it from the **App Store inside [OpenMasjidOS](https://github.com/hasan-ismail/OpenMasjidOS)**
+Install it from the **App Store inside [OpenMasjidOS](https://github.com/OpenMasjid-Solutions/OpenMasjidOS)**
 with one click. When it's running, press **Open** — it signs you in with your
 OpenMasjidOS login and matches your dashboard's light/dark theme and wallpaper.
 There's nothing to fill in at install time; add your Stripe keys and your first
@@ -96,5 +96,5 @@ For Stripe work (later slices) use **test keys** and Stripe's test cards.
 - **License: [AGPL-3.0](LICENSE).**
 
 This is an OpenMasjidOS **app**; the platform that runs it lives in
-[OpenMasjidOS](https://github.com/hasan-ismail/OpenMasjidOS), and apps are listed in
-[OpenMasjidAPPS](https://github.com/hasan-ismail/OpenMasjidAPPS).
+[OpenMasjidOS](https://github.com/OpenMasjid-Solutions/OpenMasjidOS), and apps are listed in
+[OpenMasjidAPPS](https://github.com/OpenMasjid-Solutions/OpenMasjidAPPS).

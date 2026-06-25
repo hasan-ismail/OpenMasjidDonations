@@ -1,8 +1,8 @@
 # Architecture & decisions — OpenMasjid Donations
 
 This records the non-obvious decisions. The reference template is
-[`OpenMasjidDisplay`](https://github.com/hasan-ismail/OpenMasjidDisplay); the
-platform contract is [`OpenMasjidOS/docs/APP_MANIFEST_SPEC.md`](https://github.com/hasan-ismail/OpenMasjidOS/blob/master/docs/APP_MANIFEST_SPEC.md)
+[`OpenMasjidDisplay`](https://github.com/OpenMasjid-Solutions/OpenMasjidDisplay); the
+platform contract is [`OpenMasjidOS/docs/APP_MANIFEST_SPEC.md`](https://github.com/OpenMasjid-Solutions/OpenMasjidOS/blob/master/docs/APP_MANIFEST_SPEC.md)
 and `OpenMasjidDisplay/docs/FABRIC.md`.
 
 ## Shape

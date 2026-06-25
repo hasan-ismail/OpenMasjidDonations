@@ -18,7 +18,7 @@ import {
 } from './api';
 import { useReadableTheme } from './prefs';
 
-const SOURCE_URL = 'https://github.com/hasan-ismail/OpenMasjidDonations';
+const SOURCE_URL = 'https://github.com/OpenMasjid-Solutions/OpenMasjidDonations';
 const STRIPE_KEYS_URL = 'https://dashboard.stripe.com/apikeys';
 
 export function AdminApp({ info }: { info: AppInfo | null }) {

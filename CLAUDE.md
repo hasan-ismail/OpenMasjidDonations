@@ -6,7 +6,7 @@
 
 ## 1. What we are building (one paragraph)
 
-**OpenMasjidDonations** is an app for [OpenMasjidOS](https://github.com/hasan-ismail/OpenMasjidOS) that gives a masjid a beautiful, self-hosted **donation website** powered by **Stripe**. A donor opens the page (on the masjid's network via a kiosk/QR code, or publicly if the masjid chooses to expose it), picks a cause, chooses a **preset or custom amount** (one-time or monthly), and pays by card. An admin manages everything from a polished, login-protected panel: create multiple **donation pages/appeals**, write rich content, upload images, set preset amounts, theme the site, enter Stripe keys, and review donations. On startup the app **receives the masjid's details** (name, address, contact, currency) from the platform and is configured for Stripe. It runs as **one Docker container**, is **AGPL-3.0**, and looks and feels like the rest of the OpenMasjid family.
+**OpenMasjidDonations** is an app for [OpenMasjidOS](https://github.com/OpenMasjid-Solutions/OpenMasjidOS) that gives a masjid a beautiful, self-hosted **donation website** powered by **Stripe**. A donor opens the page (on the masjid's network via a kiosk/QR code, or publicly if the masjid chooses to expose it), picks a cause, chooses a **preset or custom amount** (one-time or monthly), and pays by card. An admin manages everything from a polished, login-protected panel: create multiple **donation pages/appeals**, write rich content, upload images, set preset amounts, theme the site, enter Stripe keys, and review donations. On startup the app **receives the masjid's details** (name, address, contact, currency) from the platform and is configured for Stripe. It runs as **one Docker container**, is **AGPL-3.0**, and looks and feels like the rest of the OpenMasjid family.
 
 ---
 
@@ -14,9 +14,9 @@
 
 You are building an OpenMasjidOS app. Two repositories define how that is done. **Read them before and during the build; mirror them.**
 
-1. **`hasan-ismail/OpenMasjidDisplay`** — the reference implementation and your structural template. It is a completed, shipped OpenMasjidOS app. **Copy its shape**: the `server/` + `web/` split, the one-container `Dockerfile`, the `docker-compose.yml` conventions, the `manifest.yaml`, the `icon.svg`/`screenshots/` layout, the platform **single-sign-on + theme/wallpaper matching done server-to-server** (never trusting the browser, with a local-password fallback), the least-privilege posture, and the CI that builds and publishes the image. When this CLAUDE.md and Display's real files disagree on a mechanism, **read Display's actual code and follow it.**
+1. **`OpenMasjid-Solutions/OpenMasjidDisplay`** — the reference implementation and your structural template. It is a completed, shipped OpenMasjidOS app. **Copy its shape**: the `server/` + `web/` split, the one-container `Dockerfile`, the `docker-compose.yml` conventions, the `manifest.yaml`, the `icon.svg`/`screenshots/` layout, the platform **single-sign-on + theme/wallpaper matching done server-to-server** (never trusting the browser, with a local-password fallback), the least-privilege posture, and the CI that builds and publishes the image. When this CLAUDE.md and Display's real files disagree on a mechanism, **read Display's actual code and follow it.**
 
-2. **`hasan-ismail/OpenMasjidAPPS`** — the catalog contract. Read **`OpenMasjidOS/docs/APP_MANIFEST_SPEC.md`** for the manifest, the `docker-compose.yml` rules (labels, project naming, volumes, ports, restart policy, banned settings), and validation. The app is registered by adding an entry to **`registry.yaml`** in OpenMasjidAPPS: `id`, `repo`, `ref` (a git tag). **Do not** hand-build a `catalog.json` — the registry model supersedes the older folder/catalog model in places; follow what Display does.
+2. **`OpenMasjid-Solutions/OpenMasjidAPPS`** — the catalog contract. Read **`OpenMasjidOS/docs/APP_MANIFEST_SPEC.md`** for the manifest, the `docker-compose.yml` rules (labels, project naming, volumes, ports, restart policy, banned settings), and validation. The app is registered by adding an entry to **`registry.yaml`** in OpenMasjidAPPS: `id`, `repo`, `ref` (a git tag). **Do not** hand-build a `catalog.json` — the registry model supersedes the older folder/catalog model in places; follow what Display does.
 
 **Hard rules that override everything except safety:**
 - **License: AGPL-3.0.** Add the full AGPL-3.0 `LICENSE`. Include a visible "Source code" link to this repo in the admin UI.
@@ -33,10 +33,10 @@ You are building an OpenMasjidOS app. Two repositories define how that is done. 
 - Registered in OpenMasjidAPPS `registry.yaml` as:
   ```yaml
   - id: donations
-    repo: hasan-ismail/OpenMasjidDonations
+    repo: OpenMasjid-Solutions/OpenMasjidDonations
     ref: v0.1.0
   ```
-- Container image published to **GHCR** (match Display's naming convention, e.g. `ghcr.io/hasan-ismail/openmasjiddonations:<version>`). Confirm Display's exact image path and mirror it.
+- Container image published to **GHCR** (match Display's naming convention, e.g. `ghcr.io/openmasjid-solutions/openmasjiddonations:<version>`). Confirm Display's exact image path and mirror it.
 
 ---
 

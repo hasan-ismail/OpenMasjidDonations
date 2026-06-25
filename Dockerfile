@@ -32,7 +32,7 @@ ENV NODE_ENV=production
 
 LABEL org.opencontainers.image.title="OpenMasjid Donations" \
       org.opencontainers.image.description="A self-hosted Stripe donation website for your masjid, on your own network." \
-      org.opencontainers.image.source="https://github.com/hasan-ismail/OpenMasjidDonations" \
+      org.opencontainers.image.source="https://github.com/OpenMasjid-Solutions/OpenMasjidDonations" \
       org.opencontainers.image.licenses="AGPL-3.0"
 
 # ca-certificates: outbound HTTPS to api.stripe.com. tini: reap children + forward
