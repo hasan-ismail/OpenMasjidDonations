@@ -61,6 +61,7 @@ export const config = {
       email: env('MASJID_EMAIL', ''),
       phone: env('MASJID_PHONE', ''),
       website: env('MASJID_WEBSITE', ''),
+      logo: env('MASJID_LOGO', ''),
     },
     // CURRENCY install setting wins; else the platform's MASJID_CURRENCY; else USD
     // (the default offered during first-run setup; the admin can change it in-app).

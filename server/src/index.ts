@@ -285,6 +285,7 @@ async function main(): Promise<void> {
     phone: z.string().max(60).optional(),
     website: z.string().max(200).optional(),
     currency: z.string().max(8).optional(),
+    logo: z.string().max(2000).optional(),
   });
   app.put('/api/settings/masjid', { preHandler: requireAdmin }, async (req, reply) => {
     const parsed = MasjidBody.safeParse(req.body);
@@ -630,6 +631,7 @@ async function main(): Promise<void> {
       raised: toMajorCur(store.raisedForCampaign(c.id)),
       currency: cur(),
       masjidName: store.getMasjid().name,
+      masjidLogo: store.getMasjid().logo,
       publishableKey: acct?.publishableKey ?? '', // safe; never the secret
       ready: !!acct && stripeConfigured(acct),
     };

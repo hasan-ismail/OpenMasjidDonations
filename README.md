@@ -10,10 +10,11 @@ appeals, amounts, theme, Stripe keys, and a donations log — from a polished,
 login-protected panel. It runs as **one container** on a cheap mini-PC or a
 Raspberry Pi, on your masjid's own network.
 
-> **Status:** early development (v0.9.0). Working: OpenMasjidOS single sign-on (with a
-> local admin-password fallback), the notifications relay, a guided first-run setup, a
-> tabbed admin with a bottom **dock** (Overview · Campaigns · Donations · Payments ·
-> Settings) like the rest of the family, a **dashboard of metric widgets** (totals, this
+> **Status:** early development (v0.10.0). Working: OpenMasjidOS single sign-on (with a
+> local admin-password fallback) and a **top-right account menu** (theme · settings · sign
+> out), the notifications relay, a guided first-run setup, your **masjid logo** on the
+> donation pages, a tabbed admin with a bottom **dock** (Overview · Campaigns · Donations ·
+> Payments · Settings) like the rest of the family, a **dashboard of metric widgets** (totals, this
 > month, average gift, a per-appeal breakdown and a 6-month trend), **multiple Stripe
 > accounts** (e.g. separate Zakat vs general funds), **campaigns** — each with **a clean
 > link you choose** (e.g. `/zakat`), a **live preview** while you edit (plus a list

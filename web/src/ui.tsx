@@ -1,6 +1,8 @@
 /** Small shared UI pieces used by both the public site and the admin area. */
-import { HandCoins, Moon, Sun } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { HandCoins, LogOut, Moon, Settings, Sun, User } from 'lucide-react';
 import { prefsStore, resolveTheme, usePrefs } from './prefs';
+import { getSession, logout, type AppInfo, type Session } from './api';
 
 /** Ambient background. A custom wallpaper image (inherited from the dashboard or set
  *  in the app) fully replaces the preset gradient; otherwise we show the preset scene
@@ -40,5 +42,51 @@ export function ThemeToggle() {
     >
       {current === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
     </button>
+  );
+}
+
+/** Top-right account menu (theme, settings, sign out, version) — mirrors the profile
+ *  menu in the OpenMasjidOS dashboard and OpenMasjidDisplay. */
+export function ProfileMenu({ info }: { info: AppInfo | null }) {
+  const prefs = usePrefs();
+  const current = resolveTheme(prefs.theme);
+  const [open, setOpen] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    getSession().then(setSession).catch(() => setSession(null));
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const toggleTheme = () => prefsStore.patch({ theme: current === 'dark' ? 'light' : 'dark', followOmos: false });
+  const signOut = async () => { try { await logout(); } catch { /* ignore */ } window.location.href = '/'; };
+  // Under SSO the platform owns the session, so a local sign-out wouldn't stick.
+  const canSignOut = !!session?.authed && !session?.sso.enabled;
+
+  return (
+    <div className="profile" ref={ref}>
+      <button className="profile-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label="Account menu">
+        <User size={18} />
+      </button>
+      {open && (
+        <div className="profile-menu glass-raised" role="menu">
+          <button className="menu-item" role="menuitem" onClick={toggleTheme}>
+            {current === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            <span>{current === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          </button>
+          <a className="menu-item" role="menuitem" href="/admin"><Settings size={17} /><span>Settings</span></a>
+          {canSignOut && (
+            <button className="menu-item" role="menuitem" onClick={signOut}><LogOut size={17} /><span>Sign out</span></button>
+          )}
+          <div className="menu-foot">OpenMasjid Donations v{info?.version ?? __APP_VERSION__}</div>
+        </div>
+      )}
+    </div>
   );
 }

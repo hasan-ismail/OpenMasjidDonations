@@ -68,6 +68,7 @@ export interface MasjidProfile {
   phone: string;
   website: string;
   currency: string;
+  logo: string;
 }
 
 export type StripeMode = 'test' | 'live' | 'unknown';
@@ -243,6 +244,7 @@ export interface PublicCampaign {
   raised: number;
   currency: string;
   masjidName: string;
+  masjidLogo: string;
   publishableKey: string;
   ready: boolean;
 }

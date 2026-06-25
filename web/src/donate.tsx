@@ -175,7 +175,11 @@ function AmountStep({ campaign, onIntent }: { campaign: PublicCampaign; onIntent
   return (
     <section className="glass-raised donate-card">
       {campaign.coverImage ? <img className="donate-cover" src={campaign.coverImage} alt="" /> : null}
-      <div className="donate-emblem" aria-hidden="true"><HandCoins size={30} /></div>
+      {bgUrl(campaign.masjidLogo) ? (
+        <img className="donate-logo" src={bgUrl(campaign.masjidLogo)} alt={campaign.masjidName || 'Masjid logo'} />
+      ) : (
+        <div className="donate-emblem" aria-hidden="true"><HandCoins size={30} /></div>
+      )}
       <h1 className="donate-title">{campaign.title}</h1>
       {campaign.masjidName ? <p className="donate-sub muted">{campaign.masjidName}</p> : null}
       {campaign.description ? <p className="donate-desc">{campaign.description}</p> : null}
@@ -283,7 +287,11 @@ function PayStep({
 
   return (
     <section className="glass-raised donate-card">
-      <div className="donate-emblem" aria-hidden="true">{intent.recurring ? <Repeat size={30} /> : <HandCoins size={30} />}</div>
+      {bgUrl(campaign.masjidLogo) ? (
+        <img className="donate-logo" src={bgUrl(campaign.masjidLogo)} alt="" />
+      ) : (
+        <div className="donate-emblem" aria-hidden="true">{intent.recurring ? <Repeat size={30} /> : <HandCoins size={30} />}</div>
+      )}
       <h1 className="donate-title">Donate {money(intent.amount, intent.currency)}{intent.recurring ? ' / month' : ''}</h1>
       <p className="donate-sub muted">{campaign.title}{intent.recurring ? ' · monthly' : ''}</p>
       <Elements stripe={stripePromise} options={{ clientSecret: intent.clientSecret, appearance: { theme } }}>

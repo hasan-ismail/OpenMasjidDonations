@@ -335,6 +335,7 @@ function MasjidCard({ masjid, onSaved }: { masjid: MasjidProfile; onSaved: () =>
         <Field id="m-email" label="Contact email (optional)"><input id="m-email" className="input" type="email" value={form.email} onChange={set('email')} /></Field>
         <Field id="m-phone" label="Phone (optional)"><input id="m-phone" className="input" value={form.phone} onChange={set('phone')} /></Field>
       </div>
+      <ImageField id="m-logo" label="Masjid logo (optional)" hint="Shown on your donation pages." value={form.logo} onChange={(v) => setForm({ ...form, logo: v })} />
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="row-between"><span className="hint">{saved ? 'Saved ✓' : ''}</span><button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} Save masjid details</button></div>
     </section>
@@ -473,7 +474,10 @@ function AccountForm({ account, webhookBase, onDone }: { account?: StripeAccount
           {editing && <button className="btn btn--ghost btn--sm" onClick={test} disabled={busy}><RefreshCw size={14} /> Test</button>}
           {editing && <button className="btn btn--ghost btn--sm" onClick={remove} disabled={del} title="Delete account"><Trash2 size={14} /> Delete</button>}
         </div>
-        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save' : 'Add account'}</button>
+        <div className="row" style={{ gap: '0.4rem' }}>
+          <button className="btn btn--ghost btn--sm" type="button" onClick={onDone}>Cancel</button>
+          <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save' : 'Add account'}</button>
+        </div>
       </div>
     </div>
   );
@@ -535,13 +539,13 @@ function CampaignsCard({ accounts, currency, masjidName }: { accounts: StripeAcc
               </div>
               <button className="icon-btn" title="Edit" onClick={() => setEditId(editId === c.id ? '' : c.id)}><Pencil size={15} /></button>
             </div>
-            {editId === c.id && <CampaignForm campaign={c} accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setEditId(''); reload(); }} />}
+            {editId === c.id && <CampaignForm campaign={c} accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setEditId(''); reload(); }} onCancel={() => setEditId('')} />}
           </div>
         ))}
         {campaigns && campaigns.length === 0 && !creating && <p className="muted" style={{ padding: '0.5rem 0' }}>No campaigns yet.</p>}
       </div>
       {creating ? (
-        <CampaignForm accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setCreating(false); reload(); }} />
+        <CampaignForm accounts={accounts} currency={currency} masjidName={masjidName} shareBase={shareBase} onDone={() => { setCreating(false); reload(); }} onCancel={() => setCreating(false)} />
       ) : (
         <button className="btn btn--primary btn--sm" disabled={noAccount} onClick={() => setCreating(true)}><Plus size={15} /> New campaign</button>
       )}
@@ -562,8 +566,8 @@ function CampaignLink({ url, base }: { url: string; base: string }) {
   );
 }
 
-function CampaignForm({ campaign, accounts, currency, masjidName, shareBase, onDone }: {
-  campaign?: Campaign; accounts: StripeAccount[]; currency: string; masjidName: string; shareBase: string; onDone: () => void;
+function CampaignForm({ campaign, accounts, currency, masjidName, shareBase, onDone, onCancel }: {
+  campaign?: Campaign; accounts: StripeAccount[]; currency: string; masjidName: string; shareBase: string; onDone: () => void; onCancel?: () => void;
 }) {
   const editing = !!campaign;
   const [title, setTitle] = useState(campaign?.title ?? '');
@@ -667,7 +671,10 @@ function CampaignForm({ campaign, accounts, currency, masjidName, shareBase, onD
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
         {editing ? <button className="btn btn--ghost btn--sm" onClick={remove} disabled={del}><Trash2 size={14} /> Delete</button> : <span />}
-        <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save campaign' : 'Create campaign'}</button>
+        <div className="row" style={{ gap: '0.4rem' }}>
+          <button className="btn btn--ghost btn--sm" type="button" onClick={onCancel ?? onDone}>Cancel</button>
+          <button className="btn btn--primary btn--sm" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : null} {editing ? 'Save campaign' : 'Create campaign'}</button>
+        </div>
       </div>
     </div>
   );
@@ -770,8 +777,6 @@ function DonationDetail({ donation, all, onClose, onPick }: {
       <div className="modal glass-raised win" role="dialog" aria-modal="true" aria-label={`Transaction ${donation.ref}`} onClick={(e) => e.stopPropagation()}>
         <div className="tl-bar">
           <button className="tl tl--red" onClick={onClose} aria-label="Close" title="Close" />
-          <span className="tl tl--amber" aria-hidden="true" />
-          <span className="tl tl--green" aria-hidden="true" />
         </div>
         <div className="modal-head">
           <div>

@@ -34,6 +34,8 @@ export interface MasjidProfile {
   phone: string;
   website: string;
   currency: string;
+  /** Logo image URL (upload path or link) shown on the donation pages. */
+  logo: string;
 }
 
 /** Stripe credentials. The SECRET key + webhook secret are server-side only and
@@ -302,6 +304,7 @@ export class Store {
       phone: s.phone ?? seed.masjid.phone,
       website: s.website ?? seed.masjid.website,
       currency: (s.currency ?? seed.currency ?? 'USD').toUpperCase() || 'USD',
+      logo: s.logo ?? seed.masjid.logo,
     };
   }
 

@@ -23,8 +23,8 @@
   --color-gold-subtle: rgba(245, 158, 11, 0.1);
 
   --color-ink: #F4F7FB;
-  --color-ink-muted: #9FACC2;
-  --color-ink-faint: #5C6B83;
+  --color-ink-muted: #AEBACD;
+  --color-ink-faint: #8593AD;
 
   --color-border: rgba(148, 175, 210, 0.14);
 
@@ -79,6 +79,8 @@
   /* Veil drawn over a custom background image so on-image text stays readable. Matches
      the (luminance-chosen) theme: darkens for dark text-on-light, etc. */
   --scrim: linear-gradient(180deg, rgba(2, 9, 18, 0.30), rgba(2, 9, 18, 0.58));
+  /* Soft halo so text sitting directly on the wallpaper stays legible. */
+  --text-shadow-scene: 0 1px 12px rgba(0, 0, 0, 0.55);
   --pattern-opacity: 0.5;
   --geometric-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='%2322D3EE' stroke-width='0.5' opacity='0.15'%3E%3Cpolygon points='30,4 34.5,21 51,15 39,28 56,30 39,32 51,45 34.5,39 30,56 25.5,39 9,45 21,32 4,30 21,28 9,15 25.5,21'/%3E%3Crect x='19' y='19' width='22' height='22' transform='rotate(45 30 30)'/%3E%3Cline x1='0' y1='30' x2='60' y2='30'/%3E%3Cline x1='30' y1='0' x2='30' y2='60'/%3E%3C/g%3E%3C/svg%3E");
 }
@@ -102,8 +104,8 @@
   --color-gold-subtle: rgba(217, 119, 6, 0.08);
 
   --color-ink: #0C4A6E;
-  --color-ink-muted: #475569;
-  --color-ink-faint: #94A3B8;
+  --color-ink-muted: #44515F;
+  --color-ink-faint: #647281;
 
   --color-border: rgba(2, 132, 199, 0.12);
 
@@ -145,6 +147,7 @@
   --aurora-gold: rgba(217, 119, 6, 0.07);
   --scene-vignette: rgba(2, 40, 70, 0.06);
   --scrim: linear-gradient(180deg, rgba(240, 249, 255, 0.28), rgba(240, 249, 255, 0.52));
+  --text-shadow-scene: 0 1px 10px rgba(255, 255, 255, 0.6);
   --pattern-opacity: 0.4;
   --geometric-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='%230284C7' stroke-width='0.5' opacity='0.1'%3E%3Cpolygon points='30,4 34.5,21 51,15 39,28 56,30 39,32 51,45 34.5,39 30,56 25.5,39 9,45 21,32 4,30 21,28 9,15 25.5,21'/%3E%3Crect x='19' y='19' width='22' height='22' transform='rotate(45 30 30)'/%3E%3Cline x1='0' y1='30' x2='60' y2='30'/%3E%3Cline x1='30' y1='0' x2='30' y2='60'/%3E%3C/g%3E%3C/svg%3E");
 }
