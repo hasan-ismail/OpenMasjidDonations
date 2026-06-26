@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/Donations - rounded corner.png" alt="OpenMasjidDonations" width="280"/>
+</p>
+
 <h1 align="center"><b>OpenMasjid Donations</b></h1>
 
 <p align="center">
