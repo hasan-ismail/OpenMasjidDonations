@@ -52,6 +52,12 @@ export const config = {
    *  bound: we must present this on the /api/auth/session check or the platform
    *  fails closed. It is a CREDENTIAL — never log or expose it. */
   omosAppSecret: env('OPENMASJID_APP_SECRET', ''),
+  /** Which platform-vaulted Stripe account (by the admin-chosen name in OpenMasjidOS
+   *  Settings → Payments) this app should use, from the STRIPE_ACCOUNT install setting.
+   *  Empty = the only/first account. Only consulted when embedded with `stripe: true`;
+   *  standalone installs use locally-entered keys instead. Read from env every start
+   *  and never persisted (see the Fabric restore-resilience rules in fabric.ts). */
+  stripeAccount: env('STRIPE_ACCOUNT', ''),
 
   /** First-run seed values. Install settings + any platform-provided MASJID_* vars
    *  seed defaults ONLY; once the admin saves a value in-app it persists to the data

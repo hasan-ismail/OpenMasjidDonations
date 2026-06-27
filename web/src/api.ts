@@ -24,7 +24,10 @@ export interface Session {
   authed: boolean;
   /** A local admin password exists. */
   hasPassword: boolean;
-  sso: { enabled: boolean; username?: string };
+  /** SSO via OpenMasjidOS. `reachable` is false only when SSO is configured but the
+   *  platform couldn't be contacted (down / migrated) — the UI then offers the local
+   *  password recovery instead of looping on "open from the dashboard". */
+  sso: { enabled: boolean; reachable: boolean; username?: string };
 }
 
 export interface NotifyTestResult {
@@ -95,9 +98,25 @@ export interface StripeAccount {
 }
 export type SaveAccountResult = StripeAccount & { verify?: VerifyResult };
 
+/** Non-secret status of the platform-vaulted Stripe account (when embedded under
+ *  OpenMasjidOS with the Stripe Fabric). `available` false = standalone / not set up. */
+export interface FabricStripeStatus {
+  available: boolean;
+  id?: string;
+  label?: string;
+  accountName?: string;
+  publishableKey?: string;
+  hasSecretKey?: boolean;
+  hasWebhookSecret?: boolean;
+  mode?: StripeMode;
+  configured?: boolean;
+  keysMismatch?: boolean;
+}
+
 export interface Settings {
   masjid: MasjidProfile;
   stripeAccounts: StripeAccount[];
+  fabricStripe: FabricStripeStatus;
   onboarded: boolean;
 }
 

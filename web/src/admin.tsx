@@ -17,7 +17,7 @@ import {
   getMetrics, getSession, getSettings, getTunnel, listCampaigns, login, logout, money, saveMasjid, saveTunnel,
   sendTestNotification, setupAdmin, testAccount, updateAccount, updateCampaign, uploadImage,
   type AccountInput, type AppInfo, type Campaign, type CampaignInput, type Donation, type DonationsResult,
-  type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
+  type FabricStripeStatus, type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
 } from './api';
 import { useReadableTheme } from './prefs';
 
@@ -33,7 +33,10 @@ export function AdminApp({ info }: { info: AppInfo | null }) {
   if (!loaded) return <Centered><span className="spinner" aria-label="Loading" /></Centered>;
   if (session?.authed) return <AdminConsole info={info} session={session} onSignedOut={refresh} />;
   if (session?.needsSetup) return <Setup onDone={refresh} />;
-  if (session?.sso.enabled) return <SsoPrompt />;
+  // Embedded under OpenMasjidOS: sign in via the dashboard. But a local password is
+  // always available as a recovery, and if the platform is unreachable we lead with it
+  // so a migrated/down OS can never lock the admin out.
+  if (session?.sso.enabled) return <SsoGate session={session} onDone={refresh} />;
   return <Login onDone={refresh} />;
 }
 
@@ -107,11 +110,50 @@ function Login({ onDone }: { onDone: () => void }) {
   );
 }
 
-const SsoPrompt = () => (
-  <AuthCard title="Sign in through OpenMasjidOS">
-    <p className="auth-sub muted">This app uses your OpenMasjidOS login. Open it from your dashboard — press <b>Open</b> on the Donations app — and you’ll be signed in automatically.</p>
-  </AuthCard>
-);
+/** Embedded sign-in. Normally you open the app from the OpenMasjidOS dashboard and SSO
+ *  signs you in. If the platform is unreachable (it was migrated to a new machine, or is
+ *  briefly down), we surface that clearly and offer the always-available local password
+ *  so the panel can never become un-enterable. The password path also stays available as
+ *  a fallback even when the platform IS reachable. */
+function SsoGate({ session, onDone }: { session: Session; onDone: () => void }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const reachable = session.sso.reachable;
+
+  // The local password recovery: sign in if one exists, otherwise set one now.
+  if (showPassword) {
+    return session.hasPassword ? <Login onDone={onDone} /> : <Setup onDone={onDone} />;
+  }
+
+  if (!reachable) {
+    return (
+      <AuthCard title="Can’t reach OpenMasjidOS">
+        <p className="auth-sub muted">
+          We couldn’t contact your OpenMasjidOS dashboard to sign you in. It may be starting up, or its address
+          changed (for example after restoring a backup onto a new machine). You can try again, or get in with a password.
+        </p>
+        <button className="btn btn--primary btn--block" onClick={onDone}><RefreshCw size={16} /> Try again</button>
+        <button className="btn btn--ghost btn--block" onClick={() => setShowPassword(true)} style={{ marginTop: '0.5rem' }}>
+          <KeyRound size={16} /> {session.hasPassword ? 'Sign in with a password instead' : 'Set a password to get in'}
+        </button>
+      </AuthCard>
+    );
+  }
+
+  // Platform reachable: sign in via the dashboard. Offer the password path only if a
+  // recovery password already exists — when none exists we deliberately don't offer to
+  // set one here (the server refuses local setup while the platform is reachable, so a
+  // passer-by can't claim the admin before the real admin; they sign in via OpenMasjidOS).
+  return (
+    <AuthCard title="Sign in through OpenMasjidOS">
+      <p className="auth-sub muted">This app uses your OpenMasjidOS login. Open it from your dashboard — press <b>Open</b> on the Donations app — and you’ll be signed in automatically.</p>
+      {session.hasPassword && (
+        <button className="btn btn--ghost btn--block" onClick={() => setShowPassword(true)} style={{ marginTop: '0.25rem' }}>
+          <KeyRound size={16} /> Use a password instead
+        </button>
+      )}
+    </AuthCard>
+  );
+}
 
 // ── Console ─────────────────────────────────────────────────────────────────
 function AdminConsole({ info, session, onSignedOut }: { info: AppInfo | null; session: Session; onSignedOut: () => void }) {
@@ -136,11 +178,12 @@ function Onboarding({ settings, onReload }: { settings: Settings; onReload: () =
         <p className="page-sub">Your masjid details and a Stripe account — then create your first appeal.</p>
       </div>
       <MasjidCard masjid={settings.masjid} onSaved={onReload} />
-      <StripeAccountsCard accounts={settings.stripeAccounts} onChanged={onReload} />
+      <StripeAccountsCard accounts={settings.stripeAccounts} fabric={settings.fabricStripe} onChanged={onReload} />
       <section className="glass panel">
         <div className="row-between">
           <p className="muted" style={{ margin: 0 }}>
             {!settings.masjid.name.trim() ? 'Add and save your masjid name to finish.'
+              : settings.fabricStripe.available && settings.fabricStripe.configured ? 'Stripe is connected through OpenMasjidOS ✓ — you’re ready.'
               : settings.stripeAccounts.some((a) => a.configured) ? 'Stripe is connected ✓ — you can change anything later.'
               : 'You can add Stripe now or later — change anything anytime.'}
           </p>
@@ -232,7 +275,7 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
         {tab === 'donations' && <DonationsCard />}
         {tab === 'payments' && (
           <>
-            <StripeAccountsCard accounts={settings.stripeAccounts} onChanged={onReload} />
+            <StripeAccountsCard accounts={settings.stripeAccounts} fabric={settings.fabricStripe} onChanged={onReload} />
             <PublicAccessCard />
           </>
         )}
@@ -369,24 +412,59 @@ function ModeBadge({ a }: { a: StripeAccount }) {
   return null;
 }
 
-function StripeAccountsCard({ accounts, onChanged }: { accounts: StripeAccount[]; onChanged: () => void }) {
+function StripeAccountsCard({ accounts, fabric, onChanged }: { accounts: StripeAccount[]; fabric?: FabricStripeStatus; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState('');
+  const [showLocal, setShowLocal] = useState(false);
   const [webhookBase, setWebhookBase] = useState('');
   useEffect(() => {
     getTunnel()
       .then((t) => setWebhookBase(t.enabled && t.publicHostname ? `https://${t.publicHostname}` : originBase()))
       .catch(() => setWebhookBase(originBase()));
   }, []);
+  // When OpenMasjidOS provides a Stripe account from its vault, that's the source of
+  // truth — the admin set it up once in the platform and every app shares it. We show
+  // it (read-only, no keys to paste) and tuck the local fallback away behind a toggle.
+  const fabricOn = !!fabric?.available;
   return (
     <section className="glass panel">
       <div className="card-head">
         <Wallet size={18} className="panel-ico" aria-hidden="true" />
         <div className="card-head__main">
           <h2 className="section-title-inline">Payments (Stripe accounts)</h2>
-          <p className="muted">Add one or more Stripe accounts — e.g. a separate account for Zakat. Secret keys stay on this device.</p>
+          <p className="muted">
+            {fabricOn
+              ? 'Connected through OpenMasjidOS — set up once in your dashboard and shared with every app. Nothing to enter here.'
+              : 'Add one or more Stripe accounts — e.g. a separate account for Zakat. Secret keys stay on this device.'}
+          </p>
         </div>
       </div>
+      {fabricOn && (
+        <>
+          <div className="list">
+            <div className="list-row">
+              <Landmark size={16} className="muted" aria-hidden="true" />
+              <div className="list-row__main">
+                <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span className="list-row__title">{fabric?.label || 'OpenMasjidOS account'}</span>
+                  {fabric?.mode === 'test' && <span className="badge badge--test">TEST</span>}
+                  {fabric?.mode === 'live' && <span className="badge badge--live">LIVE</span>}
+                  {fabric?.configured
+                    ? <span className="status-pill status-pill--ok"><CheckCircle2 size={12} /> Connected via OpenMasjidOS</span>
+                    : <span className="status-pill">Finish in OpenMasjidOS → Settings → Payments</span>}
+                </div>
+                <p className="muted" style={{ margin: '0.2rem 0 0' }}>Manage these keys in OpenMasjidOS — they’re backed up and moved with your dashboard.</p>
+              </div>
+            </div>
+          </div>
+          <button className="btn btn--ghost btn--sm" onClick={() => setShowLocal((v) => !v)}>
+            {showLocal ? 'Hide' : 'Use a Stripe account stored on this device instead'}
+          </button>
+          {!showLocal && <p className="hint" style={{ marginTop: '0.4rem' }}>Local keys are only used if the connection to OpenMasjidOS is unavailable.</p>}
+        </>
+      )}
+      {(!fabricOn || showLocal) && (
+        <>
       <StripeInstructions />
       <div className="list">
         {accounts.map((a) => (
@@ -412,6 +490,8 @@ function StripeAccountsCard({ accounts, onChanged }: { accounts: StripeAccount[]
         <AccountForm webhookBase={webhookBase} onDone={() => { setAdding(false); onChanged(); }} />
       ) : (
         <button className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}><Plus size={15} /> Add Stripe account</button>
+      )}
+        </>
       )}
     </section>
   );

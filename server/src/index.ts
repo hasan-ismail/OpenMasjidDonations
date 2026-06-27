@@ -18,9 +18,9 @@ import { z } from 'zod';
 import { config, ssoConfigured } from './config';
 import { makeLog } from './logger';
 import { Store, slugify, rid, RESERVED_SLUGS } from './store';
-import type { Campaign, StripeAccount } from './store';
+import type { Campaign, StripeAccount, StripeConfig } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
-import { notify, platformUser } from './fabric';
+import { notify, probePlatform, fetchFabricStripe, cachedFabricStripe } from './fabric';
 import { LoginLimiter } from './rateLimit';
 import { TunnelManager } from './tunnel';
 import {
@@ -116,8 +116,12 @@ async function main(): Promise<void> {
       version: config.version,
       embedded: ssoConfigured(),
       omosBase: config.omosBaseUrl, // '' when standalone
-      // Whether any Stripe account is fully configured (no secrets here).
-      donationsConfigured: store.listStripeAccounts().some((a) => stripeConfigured(a)),
+      // Whether donations can be taken (no secrets here): a local account is set up,
+      // OR the platform-vaulted Fabric account is (uses the cached copy — no per-load
+      // platform call; it's warmed by the admin/campaign requests).
+      donationsConfigured:
+        store.listStripeAccounts().some((a) => stripeConfigured(a)) ||
+        (() => { const f = cachedFabricStripe(); return !!f && stripeConfigured(f); })(),
       // Before the admin finishes first-run setup, the landing page sends them
       // straight to /admin (where they log in / set a password, then the wizard).
       onboarded: store.isOnboarded(),
@@ -154,33 +158,47 @@ async function main(): Promise<void> {
   app.get('/api/session', async (req, reply) => {
     let authed = isAuthed(req.cookies[COOKIE]);
     let username: string | undefined;
+    // True unless we tried to reach the platform and couldn't — lets the UI tell
+    // "open it from the dashboard" apart from "OpenMasjidOS is unreachable" (a
+    // migrated/down platform must offer the local-password way in, not a dead loop).
+    let reachable = true;
     if (!authed && ssoConfigured()) {
-      const user = await platformUser(req.headers.cookie);
-      if (user) {
+      const probe = await probePlatform(req.headers.cookie);
+      reachable = probe.reachable;
+      if (probe.username) {
         reply.setCookie(COOKIE, makeToken(store.secret, SSO_SESSION_MS), cookieOptions(SSO_SESSION_MS));
         authed = true;
-        username = user;
+        username = probe.username;
       }
     }
     return {
       data: {
-        // Standalone: first run creates a password. Under OpenMasjidOS, signing in
-        // is the dashboard's job (SSO), so we never block on local setup.
+        // Standalone first run creates a password. Under OpenMasjidOS, signing in is
+        // the dashboard's job (SSO) — but a local password is ALWAYS available as a
+        // recovery (see /api/setup), so the panel can never get bricked.
         needsSetup: !store.hasAdmin() && !ssoConfigured(),
         authed,
         hasPassword: store.hasAdmin(),
-        sso: { enabled: ssoConfigured(), username },
+        sso: { enabled: ssoConfigured(), reachable, username },
       },
     };
   });
 
-  // ── First-run setup (standalone only) ───────────────────────────────────────
+  // ── First-run setup / local-password recovery ───────────────────────────────
   const SetupBody = z.object({ password: z.string().min(8).max(200), name: z.string().max(80).optional() });
   app.post('/api/setup', async (req, reply) => {
-    // Under OpenMasjidOS, sign-in is the dashboard's job (SSO) — there is no local
-    // admin password to claim, so refuse setup to close the pre-setup window.
-    if (ssoConfigured()) return reply.code(403).send({ error: 'This panel signs in through OpenMasjidOS.' });
     if (store.hasAdmin()) return reply.code(409).send({ error: 'This app is already set up.' });
+    // The local password is a RECOVERY for when OpenMasjidOS can't sign you in. We allow
+    // it whenever SSO isn't configured (standalone) OR the platform is currently
+    // unreachable (a restore onto a new box, the OS briefly down) — so the panel can
+    // never get bricked (see docs/RESTORE_SSO_FIX.md). But when the platform IS reachable
+    // we refuse: the admin should sign in through the dashboard, and refusing here closes
+    // the pre-setup window where a passer-by on the LAN could otherwise claim the admin
+    // password before the real admin. Distinguishing "not configured" from "configured
+    // but unreachable" is exactly what the Fabric restore-resilience contract requires.
+    if (ssoConfigured() && (await probePlatform(req.headers.cookie)).reachable) {
+      return reply.code(403).send({ error: 'Sign in through your OpenMasjidOS dashboard — press Open on the Donations app.' });
+    }
     const parsed = SetupBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Please choose a password of at least 8 characters.' });
     store.setAdmin(hashPassword(parsed.data.password), parsed.data.name?.trim());
@@ -242,6 +260,43 @@ async function main(): Promise<void> {
   /** Non-secret view of a Stripe account (publishable key + booleans only). */
   const publicAccount = (a: StripeAccount) => ({ id: a.id, label: a.label, ...publicStripeStatus(a) });
 
+  // ── Stripe account resolution: Fabric vault first, local keys as fallback ────
+  // When embedded under OpenMasjidOS with the `stripe` capability, the admin configures
+  // Stripe ONCE in the platform (Settings → Payments) and every app shares that vaulted
+  // account — chosen here by the STRIPE_ACCOUNT install setting. It is the source of
+  // truth and is shared by every campaign. Standalone (or if the Fabric is unreachable /
+  // has no such account), we fall back to the campaign's own locally-entered keys. The
+  // fetched secret/webhook keys live in memory only (never our data volume), so they
+  // always track the OS vault — including after a restore onto a new machine.
+  type ResolvedAccount = StripeConfig & { id: string; label: string };
+
+  /** The platform-vaulted Stripe account for this app, or null when not embedded /
+   *  unreachable / not set up in OpenMasjidOS. */
+  const fabricAccount = async (): Promise<ResolvedAccount | null> => {
+    if (!ssoConfigured()) return null;
+    return await fetchFabricStripe(config.stripeAccount);
+  };
+
+  /** The effective Stripe account a campaign should charge through: the Fabric vault
+   *  account when it's actually CONFIGURED (a real pk+sk pair), else the campaign's own
+   *  local account. The `stripeConfigured` gate matters — a half-set-up vault account
+   *  (secret present but publishable still blank in OpenMasjidOS) must NOT shadow a
+   *  working local account, or donations would silently break mid-migration. */
+  const effectiveAccountFor = async (c: Campaign): Promise<ResolvedAccount | null> => {
+    const fab = await fabricAccount();
+    if (fab && stripeConfigured(fab)) return fab;
+    return store.getStripeAccount(c.stripeAccountId);
+  };
+
+  /** Resolve a Stripe account by id across both sources (used by the webhook route,
+   *  whose URL embeds the account id we handed to Stripe). */
+  const accountById = async (id: string): Promise<ResolvedAccount | null> => {
+    const local = store.getStripeAccount(id);
+    if (local) return local;
+    const fab = await fabricAccount();
+    return fab && fab.id === id ? fab : null;
+  };
+
   const checkKeys = (p: { publishableKey?: string; secretKey?: string; webhookSecret?: string }): string | null => {
     if (p.publishableKey && !looksLikePublishable(p.publishableKey)) return 'The publishable key should start with pk_.';
     if (p.secretKey && !looksLikeSecret(p.secretKey)) return 'The secret key should start with sk_.';
@@ -272,11 +327,21 @@ async function main(): Promise<void> {
     return { slug };
   };
 
+  /** Non-secret view of the platform-vaulted Stripe account (so the admin Payments
+   *  screen can show "using your OpenMasjidOS account" instead of asking for keys).
+   *  Never includes secrets — only the publishable key + booleans (publicStripeStatus). */
+  const fabricStripeStatus = async () => {
+    const a = await fabricAccount();
+    if (!a) return { available: false as const };
+    return { available: true as const, id: a.id, label: a.label, accountName: config.stripeAccount, ...publicStripeStatus(a) };
+  };
+
   // ── Settings: masjid details + onboarding (Stripe accounts have own routes) ──
   app.get('/api/settings', { preHandler: requireAdmin }, async () => ({
     data: {
       masjid: store.getMasjid(),
       stripeAccounts: store.listStripeAccounts().map(publicAccount),
+      fabricStripe: await fabricStripeStatus(),
       onboarded: store.isOnboarded(),
     },
   }));
@@ -432,7 +497,10 @@ async function main(): Promise<void> {
     const parsed = CampaignBody.safeParse(req.body);
     if (!parsed.success || !parsed.data.title) return reply.code(400).send({ error: 'A campaign needs a title.' });
     const p = parsed.data;
-    const accountId = p.stripeAccountId || store.listStripeAccounts()[0]?.id;
+    // Pick the account to attach: an explicit choice, else the first local account,
+    // else the platform-vaulted Fabric account (when embedded). Charges always resolve
+    // the effective account at pay time (Fabric first), so this is just the default.
+    const accountId = p.stripeAccountId || store.listStripeAccounts()[0]?.id || (await fabricAccount())?.id;
     if (!accountId) return reply.code(400).send({ error: 'Add a Stripe account before creating a campaign.' });
     const { slug, error } = resolveSlug(p.slug, p.title!);
     if (error) return reply.code(409).send({ error });
@@ -618,8 +686,8 @@ async function main(): Promise<void> {
     return store.getCampaignBySlug(slug);
   };
 
-  const publicCampaign = (c: Campaign) => {
-    const acct = store.getStripeAccount(c.stripeAccountId);
+  const publicCampaign = async (c: Campaign) => {
+    const acct = await effectiveAccountFor(c);
     return {
       slug: c.slug,
       title: c.title,
@@ -644,10 +712,10 @@ async function main(): Promise<void> {
     };
   };
 
-  const sendPublicCampaign = (slug: string, token: string | undefined, reply: import('fastify').FastifyReply) => {
+  const sendPublicCampaign = async (slug: string, token: string | undefined, reply: import('fastify').FastifyReply) => {
     const c = resolvePublicCampaign(slug, token);
     if (!c || !c.active) return reply.code(404).send({ error: 'This donation page isn’t available.' });
-    return { data: publicCampaign(c) };
+    return { data: await publicCampaign(c) };
   };
   // Primary clean route + back-compat route that still accepts the old token segment.
   app.get('/api/public/campaign/:slug', async (req, reply) =>
@@ -676,7 +744,7 @@ async function main(): Promise<void> {
     const { slug, token } = req.params as { slug: string; token?: string };
     const c = resolvePublicCampaign(slug, token);
     if (!c || !c.active) return reply.code(404).send({ error: 'This donation page isn’t available.' });
-    const acct = store.getStripeAccount(c.stripeAccountId);
+    const acct = await effectiveAccountFor(c);
     if (!acct || !stripeConfigured(acct)) return reply.code(400).send({ error: 'Donations aren’t set up for this page yet.' });
     const parsed = IntentBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Please choose a valid amount.' });
@@ -769,8 +837,12 @@ async function main(): Promise<void> {
     const { paymentIntentId, slug, token } = parsed.data;
     const c = resolvePublicCampaign(slug, token);
     if (!c) return reply.code(404).send({ error: 'Unknown campaign.' });
-    const acct = store.getStripeAccount(c.stripeAccountId);
     const don = store.getDonationByPaymentIntent(paymentIntentId);
+    // Confirm against the SAME account the PaymentIntent was created on (recorded on the
+    // donation) — never re-resolve Fabric-first here, or a payment made on one account
+    // could be retrieved against another's keys after a config/reachability change,
+    // leaving a genuinely-succeeded donation stuck "pending".
+    const acct = don ? await accountById(don.stripeAccountId) : null;
     if (!acct || !don || don.campaignId !== c.id) return reply.code(404).send({ error: 'Unknown donation.' });
     const pi = await retrievePaymentIntent(acct, paymentIntentId);
     if (!pi) return reply.code(502).send({ error: 'Couldn’t confirm with Stripe. Please try again.' });
@@ -804,7 +876,7 @@ async function main(): Promise<void> {
   // charges (invoice.paid on renewal) and resiliently confirms one-time payments.
   // The signature is verified with the account's own webhook secret.
   app.post('/api/stripe/webhook/:accountId', async (req, reply) => {
-    const acct = store.getStripeAccount((req.params as { accountId: string }).accountId);
+    const acct = await accountById((req.params as { accountId: string }).accountId);
     if (!acct || !acct.webhookSecret) return reply.code(400).send({ error: 'Webhook not configured.' });
     const sig = req.headers['stripe-signature'];
     const raw = (req as unknown as { rawBody?: string }).rawBody;
@@ -890,6 +962,12 @@ async function main(): Promise<void> {
   // Bring up the Cloudflare Tunnel if the admin has enabled it (no-op otherwise).
   const tcfg = store.getTunnel();
   tunnel.apply(tcfg.token, tcfg.enabled);
+
+  // Warm the Fabric Stripe cache (fire-and-forget) so the very first public request
+  // after a (re)start — including right after a restore onto a new machine — already
+  // knows donations are set up, instead of reporting "not configured" until something
+  // warms it. Fails soft; never blocks startup.
+  if (ssoConfigured()) void fetchFabricStripe(config.stripeAccount);
 
   const shutdown = () => {
     log.info('shutting down');

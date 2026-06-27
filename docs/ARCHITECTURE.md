@@ -100,3 +100,28 @@ must not be renamed.
 9. Appearance/theming polish, animations, friendly errors.
 10. README/screenshots/docs; tag `v0.1.0`; add the `registry.yaml` entry to
     OpenMasjidAPPS (move `donations` out of `coming_soon`).
+
+## OpenMasjidOS Fabric: SSO, Stripe vault & restore resilience (v0.16.0)
+
+The platform↔app integration ("Fabric") lives in `server/src/fabric.ts` and is always
+optional — the app works fully standalone.
+
+- **SSO** is server-to-server: `probePlatform()` validates the incoming `omos_session`
+  cookie against `${OPENMASJID_BASE_URL}/api/auth/session`, presenting our per-app
+  `OPENMASJID_APP_SECRET`. It returns `{ username, reachable }` — `reachable`
+  distinguishes "not signed in" from "platform unreachable" so the panel can offer the
+  local-password recovery instead of looping.
+- **Stripe via the Fabric** (`stripe: true`): keys are configured **once** in OpenMasjidOS
+  and fetched per-app with `fetchFabricStripe()` (the `STRIPE_ACCOUNT` setting names which
+  vaulted account). They are cached **in memory only, never written to the data volume**, so
+  they always track the OS vault — including after a restore onto a new machine. The
+  resolvers `effectiveAccountFor()` (charging) and `accountById()` (webhook) prefer the
+  Fabric account **only when it is fully configured**, otherwise fall back to locally-entered
+  keys. Confirm-on-return resolves the account by the donation's **recorded** account id, so
+  a config/reachability change between intent and confirm can't strand a succeeded payment.
+- **Restore/migration resilience** (required of every Fabric app): `OPENMASJID_BASE_URL` and
+  `OPENMASJID_APP_SECRET` are read from env every start and never persisted; every Fabric
+  call fails soft (short timeout, `redirect:'error'`); and **local setup can never be
+  bricked** — `/api/setup` allows the recovery password when SSO is unconfigured or the
+  platform is unreachable, and refuses it only while the platform is reachable (which also
+  closes the pre-setup admin-claim window). See `docs/RESTORE_SSO_FIX.md`.

@@ -5,7 +5,7 @@ id: donations
 name: OpenMasjid Donations
 tagline: Take card donations on your masjid's network with Stripe
 category: donations
-version: 0.15.0
+version: 0.16.0
 author: OpenMasjid-Solutions
 license: AGPL-3.0-only
 icon: icon.svg
@@ -50,12 +50,23 @@ notifications: true
 # it on a dedicated HTTPS port (terminating TLS with the dashboard's cert); this
 # container stays a plain HTTP server and does nothing special for TLS.
 https: true
+# Opt into the Fabric Stripe capability: the admin configures Stripe ONCE in
+# OpenMasjidOS (Settings → Payments) and this app fetches the vaulted keys
+# server-to-server (never pasted here, never stored on this app's disk, backed up
+# and migrated with the platform). Falls back to locally-entered keys when run
+# standalone. The platform issues the per-app secret used to fetch them.
+stripe: true
 
-# No install-time settings — install is one-click, nothing to fill in. Everything
-# (Stripe keys, masjid details, currency) is collected in the app's guided first-run
-# setup, which opens automatically the first time you open it. Advanced operators can
-# still seed values via env on the platform; the compose references them with empty
-# defaults so it stays quiet otherwise.
+# Install stays effectively one-click. The only (optional) setting picks WHICH named
+# Stripe account from OpenMasjidOS this app should use — leave it blank to use your
+# only/first account. Everything else (masjid details, currency, or local Stripe keys
+# for standalone use) is collected in the app's guided first-run setup.
+settings:
+  - key: STRIPE_ACCOUNT
+    label: OpenMasjidOS Stripe account
+    type: text
+    required: false
+    description: "Optional. The name of the Stripe account you created in OpenMasjidOS → Settings → Payments. Leave blank to use your only/first account."
 ports:
   - container: 8080
     label: Donations site

@@ -32,6 +32,10 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       CURRENCY: ${CURRENCY:-}
+      # Fabric Stripe (manifest `stripe: true`): which named OpenMasjidOS payment
+      # account this app uses. Blank = the only/first account. The keys themselves are
+      # fetched server-to-server from the platform vault (never set here, never stored).
+      STRIPE_ACCOUNT: ${STRIPE_ACCOUNT:-}
     ports:
       # host:container. OpenMasjidOS offers "Open" on the lowest published port and
       # picks a different free host port automatically if 7870 is already taken.
