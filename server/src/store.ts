@@ -87,8 +87,33 @@ export interface Campaign {
   goalAmount: number;
   active: boolean;
   sortOrder: number;
+  /** Per-campaign thank-you override. Any empty field inherits the global default
+   *  (see ThankYou + getThankYou). Shown on the post-donation thank-you screen. */
+  thankYou: ThankYou;
   createdAt: string;
 }
+
+/** The post-donation thank-you screen content. The heading/message support the
+ *  variables {name}, {amount}, {campaign}, {masjid}, substituted when shown. As a
+ *  per-campaign override, an empty field means "inherit the global default". */
+export interface ThankYou {
+  heading: string;
+  message: string;
+  /** Background image URL (or /uploads/…) for the thank-you screen; empty = the page's. */
+  backgroundImage: string;
+  /** Accent colour (hex) for the thank-you screen highlight; empty = the theme accent. */
+  accent: string;
+}
+
+export const THANKYOU_DEFAULT: ThankYou = {
+  heading: 'JazākAllāhu khayran, {name}!',
+  message: 'Your donation of {amount} to {campaign} was received. May Allah accept it from you and reward you abundantly.',
+  backgroundImage: '',
+  accent: '',
+};
+
+/** An empty override (every field inherits the global default). */
+const THANKYOU_EMPTY: ThankYou = { heading: '', message: '', backgroundImage: '', accent: '' };
 
 export interface Donation {
   id: string;
@@ -226,6 +251,7 @@ export class Store {
     this.ensureColumn('campaigns', 'background_image', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('campaigns', 'logo', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('campaigns', 'allow_monthly', 'INTEGER NOT NULL DEFAULT 0');
+    this.ensureColumn('campaigns', 'thank_you', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('donations', 'card_brand', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('donations', 'card_last4', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('donations', 'recurring', 'INTEGER NOT NULL DEFAULT 0');
@@ -533,8 +559,42 @@ export class Store {
       goalAmount: Number(r.goal_amount),
       active: !!r.active,
       sortOrder: Number(r.sort_order),
+      thankYou: this.parseThankYou(r.thank_you),
       createdAt: String(r.created_at),
     };
+  }
+
+  /** Parse a stored per-campaign thank-you override; missing/invalid → empty (inherit). */
+  private parseThankYou(raw: unknown): ThankYou {
+    if (typeof raw !== 'string' || !raw) return { ...THANKYOU_EMPTY };
+    try {
+      const o = JSON.parse(raw) as Partial<ThankYou>;
+      return {
+        heading: typeof o.heading === 'string' ? o.heading : '',
+        message: typeof o.message === 'string' ? o.message : '',
+        backgroundImage: typeof o.backgroundImage === 'string' ? o.backgroundImage : '',
+        accent: typeof o.accent === 'string' ? o.accent : '',
+      };
+    } catch {
+      return { ...THANKYOU_EMPTY };
+    }
+  }
+
+  /** The global default thank-you (admin-editable), merged over the built-in default. */
+  getThankYou(): ThankYou {
+    const s = this.getJson<ThankYou>('thankyou');
+    return {
+      heading: s.heading ?? THANKYOU_DEFAULT.heading,
+      message: s.message ?? THANKYOU_DEFAULT.message,
+      backgroundImage: s.backgroundImage ?? THANKYOU_DEFAULT.backgroundImage,
+      accent: s.accent ?? THANKYOU_DEFAULT.accent,
+    };
+  }
+
+  setThankYou(patch: Partial<ThankYou>): ThankYou {
+    const merged = { ...this.getThankYou(), ...clean(patch) };
+    this.setRaw('thankyou', JSON.stringify(merged));
+    return merged;
   }
 
   private writeCampaign(c: Campaign): void {
@@ -542,16 +602,17 @@ export class Store {
       .prepare(
         `INSERT INTO campaigns
           (id, slug, token, title, description, cover_image, background_image, logo, preset_amounts, allow_custom, min_amount,
-           max_amount, stripe_account_id, cover_fees, gift_aid, allow_monthly, goal_amount, active, sort_order, created_at)
+           max_amount, stripe_account_id, cover_fees, gift_aid, allow_monthly, goal_amount, active, sort_order, thank_you, created_at)
          VALUES
           (@id, @slug, @token, @title, @description, @coverImage, @backgroundImage, @logo, @presetAmounts, @allowCustom, @minAmount,
-           @maxAmount, @stripeAccountId, @coverFees, @giftAid, @allowMonthly, @goalAmount, @active, @sortOrder, @createdAt)
+           @maxAmount, @stripeAccountId, @coverFees, @giftAid, @allowMonthly, @goalAmount, @active, @sortOrder, @thankYou, @createdAt)
          ON CONFLICT(id) DO UPDATE SET
            slug=excluded.slug, title=excluded.title, description=excluded.description, cover_image=excluded.cover_image,
            background_image=excluded.background_image, logo=excluded.logo, preset_amounts=excluded.preset_amounts,
            allow_custom=excluded.allow_custom, min_amount=excluded.min_amount, max_amount=excluded.max_amount,
            stripe_account_id=excluded.stripe_account_id, cover_fees=excluded.cover_fees, gift_aid=excluded.gift_aid,
-           allow_monthly=excluded.allow_monthly, goal_amount=excluded.goal_amount, active=excluded.active, sort_order=excluded.sort_order`,
+           allow_monthly=excluded.allow_monthly, goal_amount=excluded.goal_amount, active=excluded.active,
+           sort_order=excluded.sort_order, thank_you=excluded.thank_you`,
       )
       .run({
         ...c,
@@ -561,6 +622,7 @@ export class Store {
         giftAid: c.giftAid ? 1 : 0,
         allowMonthly: c.allowMonthly ? 1 : 0,
         active: c.active ? 1 : 0,
+        thankYou: JSON.stringify(c.thankYou ?? THANKYOU_EMPTY),
       });
   }
 
@@ -611,6 +673,7 @@ export class Store {
       goalAmount: input.goalAmount ?? 0,
       active: input.active ?? true,
       sortOrder: maxSort + 1,
+      thankYou: input.thankYou ?? { ...THANKYOU_EMPTY },
       createdAt: new Date().toISOString(),
     };
     this.writeCampaign(c);

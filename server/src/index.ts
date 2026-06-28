@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { config, ssoConfigured } from './config';
 import { makeLog } from './logger';
 import { Store, slugify, rid, RESERVED_SLUGS } from './store';
-import type { Campaign, StripeAccount, StripeConfig } from './store';
+import type { Campaign, StripeAccount, StripeConfig, ThankYou } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
 import { notify, probePlatform, fetchFabricStripe, cachedFabricStripe, fetchFabricStripeAccounts, clearFabricStripeCache, fetchFabricSite, cachedFabricSite, fabricConfigSignature } from './fabric';
 import { LoginLimiter } from './rateLimit';
@@ -395,6 +395,23 @@ async function main(): Promise<void> {
     return { data: { ok: true } };
   });
 
+  // ── Thank-you screen: the global default shown after a donation ──────────────
+  // Per-campaign overrides live on the campaign (CampaignBody.thankYou); empty fields
+  // inherit this default. Heading/message support {name} {amount} {campaign} {masjid}.
+  const ThankYouBody = z.object({
+    heading: z.string().max(200).optional(),
+    message: z.string().max(2000).optional(),
+    backgroundImage: z.string().max(2000).optional(),
+    accent: z.string().max(40).optional(),
+  });
+  app.get('/api/admin/thankyou', { preHandler: requireAdmin }, async () => ({ data: store.getThankYou() }));
+  app.put('/api/admin/thankyou', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = ThankYouBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please check the details and try again.' });
+    const patch = parsed.data.accent !== undefined ? { ...parsed.data, accent: sanitizeAccent(parsed.data.accent) } : parsed.data;
+    return { data: store.setThankYou(patch) };
+  });
+
   // ── Image upload (campaign cover/background) — saved to the data volume ──────
   // Raster images only (no SVG — it can carry scripts and we serve from same origin).
   const IMG_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
@@ -528,7 +545,21 @@ async function main(): Promise<void> {
     allowMonthly: z.boolean().optional(),
     goalAmount: z.number().nonnegative().optional(), // major
     active: z.boolean().optional(),
+    // Per-campaign thank-you override; any empty field inherits the global default.
+    thankYou: z.object({
+      heading: z.string().max(200).optional(),
+      message: z.string().max(2000).optional(),
+      backgroundImage: z.string().max(2000).optional(),
+      accent: z.string().max(40).optional(),
+    }).optional(),
   });
+  /** Keep an accent only if it's a valid hex colour, else '' — so an unvalidated value can
+   *  never reach a style/markup consumer (the browser already checks, this is belt-and-braces). */
+  const sanitizeAccent = (a?: string): string => (a && /^#[0-9a-fA-F]{3,8}$/.test(a.trim()) ? a.trim() : '');
+
+  /** Normalise a thank-you override from the request into a full (empty-filled) object. */
+  const thankYouOverride = (t: z.infer<typeof CampaignBody>['thankYou']): import('./store').ThankYou | undefined =>
+    t === undefined ? undefined : { heading: t.heading ?? '', message: t.message ?? '', backgroundImage: t.backgroundImage ?? '', accent: sanitizeAccent(t.accent) };
   /** Convert the major-unit amount fields on a campaign body to minor units. */
   const campaignAmountsToMinor = (p: z.infer<typeof CampaignBody>) => ({
     presetAmounts: p.presetAmounts?.map(toMinorCur),
@@ -564,6 +595,7 @@ async function main(): Promise<void> {
       giftAid: p.giftAid,
       allowMonthly: p.allowMonthly,
       active: p.active,
+      thankYou: thankYouOverride(p.thankYou),
       ...campaignAmountsToMinor(p),
     });
     return { data: adminCampaign(c) };
@@ -594,6 +626,7 @@ async function main(): Promise<void> {
       giftAid: p.giftAid,
       allowMonthly: p.allowMonthly,
       active: p.active,
+      thankYou: thankYouOverride(p.thankYou),
       ...campaignAmountsToMinor(p),
     });
     if (!c) return reply.code(404).send({ error: 'Campaign not found.' });
@@ -733,6 +766,18 @@ async function main(): Promise<void> {
     return store.getCampaignBySlug(slug);
   };
 
+  /** Resolve a campaign's thank-you: each empty override field inherits the global default. */
+  const resolveThankYou = (c: Campaign): ThankYou => {
+    const g = store.getThankYou();
+    const o = c.thankYou;
+    return {
+      heading: o.heading || g.heading,
+      message: o.message || g.message,
+      backgroundImage: o.backgroundImage || g.backgroundImage,
+      accent: o.accent || g.accent,
+    };
+  };
+
   const publicCampaign = async (c: Campaign) => {
     const acct = await effectiveAccountFor(c);
     return {
@@ -754,6 +799,7 @@ async function main(): Promise<void> {
       currency: cur(),
       masjidName: store.getMasjid().name,
       masjidLogo: store.getMasjid().logo,
+      thankYou: resolveThankYou(c), // resolved (campaign override over global default)
       publishableKey: acct?.publishableKey ?? '', // safe; never the secret
       ready: !!acct && stripeConfigured(acct),
     };

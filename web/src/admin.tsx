@@ -8,17 +8,17 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  Bell, CalendarDays, CheckCircle2, Coins, Copy, CreditCard, Download, ExternalLink, Eye, EyeOff, Globe, HandCoins,
+  Bell, CalendarDays, CheckCircle2, Coins, Copy, CreditCard, Download, ExternalLink, Eye, EyeOff, Globe, HandCoins, HeartHandshake,
   KeyRound, Landmark, LayoutDashboard, Link2, LogIn, LogOut, Megaphone, Pencil, Plus, QrCode, ReceiptText, RefreshCw,
   Settings as SettingsIcon, ShieldCheck, Sparkles, TrendingUp, Trash2, Upload, Wallet, X,
 } from 'lucide-react';
 import {
   checkSlug, completeOnboarding, createAccount, createCampaign, deleteAccount, deleteCampaign, getDonations,
-  getFabricStripeAccounts, getMetrics, getSession, getSettings, getTunnel, listCampaigns, login, logout, money,
-  saveFabricStripeAccount, saveMasjid, saveTunnel,
+  getFabricStripeAccounts, getMetrics, getSession, getSettings, getThankYou, getTunnel, listCampaigns, login, logout, money,
+  saveFabricStripeAccount, saveMasjid, saveThankYou, saveTunnel,
   sendTestNotification, setupAdmin, testAccount, updateAccount, updateCampaign, uploadImage,
   type AccountInput, type AppInfo, type Campaign, type CampaignInput, type Donation, type DonationsResult,
-  type FabricStripeAccountRef, type FabricStripeStatus, type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
+  type FabricStripeAccountRef, type FabricStripeStatus, type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type ThankYou, type TunnelStatus, type VerifyResult,
 } from './api';
 import { useReadableTheme } from './prefs';
 import { BASE, asset, withBase } from './base';
@@ -200,11 +200,12 @@ function Onboarding({ settings, publicBase, embedded, onReload }: { settings: Se
 
 // Primary navigation — a bottom dock, like the other OpenMasjidOS apps. Each tab is a
 // distinct section; the Donations records get their own tab.
-type AdminTab = 'overview' | 'campaigns' | 'donations' | 'payments' | 'settings';
+type AdminTab = 'overview' | 'campaigns' | 'donations' | 'thankyou' | 'payments' | 'settings';
 const ADMIN_TABS: { id: AdminTab; label: string; Icon: typeof Megaphone }[] = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'campaigns', label: 'Campaigns', Icon: Megaphone },
   { id: 'donations', label: 'Donations', Icon: ReceiptText },
+  { id: 'thankyou', label: 'Thank-you', Icon: HeartHandshake },
   { id: 'payments', label: 'Payments', Icon: CreditCard },
   { id: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
@@ -264,6 +265,7 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
     overview: { title: 'Dashboard', sub: `${session.sso.username ? `Signed in as ${session.sso.username}` : 'Signed in'}${embedded ? ' · via OpenMasjidOS' : ''}` },
     campaigns: { title: 'Campaigns', sub: 'Create and manage your donation appeals.' },
     donations: { title: 'Donations', sub: 'Every gift your masjid has received.' },
+    thankyou: { title: 'Thank-you', sub: 'The message donors see right after they give.' },
     payments: { title: 'Payments', sub: 'Your Stripe accounts and optional public access.' },
     settings: { title: 'Settings', sub: 'Masjid details, notifications and your account.' },
   };
@@ -279,6 +281,7 @@ function AdminHome({ info, session, settings, onReload, onSignedOut }: {
         {tab === 'overview' && <MetricsDashboard />}
         {tab === 'campaigns' && <CampaignsCard accounts={settings.stripeAccounts} currency={settings.masjid.currency} masjidName={settings.masjid.name} masjidLogo={settings.masjid.logo} publicBase={publicBase} />}
         {tab === 'donations' && <DonationsCard />}
+        {tab === 'thankyou' && <ThankYouCard masjidName={settings.masjid.name} currency={settings.masjid.currency} />}
         {tab === 'payments' && (
           <>
             <StripeAccountsCard accounts={settings.stripeAccounts} fabric={settings.fabricStripe} publicBase={publicBase} embedded={embedded} onChanged={onReload} />
@@ -725,6 +728,10 @@ function CampaignForm({ campaign, accounts, currency, masjidName, masjidLogo, sh
   const [allowMonthly, setAllowMonthly] = useState(campaign?.allowMonthly ?? false);
   const [goalAmount, setGoalAmount] = useState(String(campaign?.goalAmount ?? 0));
   const [active, setActive] = useState(campaign?.active ?? true);
+  const [thankYou, setThankYou] = useState<ThankYou>(campaign?.thankYou ?? { ...TY_EMPTY });
+  const [tyOpen, setTyOpen] = useState(false);
+  const [tyDefault, setTyDefault] = useState<ThankYou | null>(null);
+  useEffect(() => { getThankYou().then(setTyDefault).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
   const [error, setError] = useState('');
@@ -758,6 +765,7 @@ function CampaignForm({ campaign, accounts, currency, masjidName, masjidLogo, sh
       allowMonthly,
       goalAmount: Number(goalAmount) || 0,
       active,
+      thankYou,
     };
     if (!body.title) { setError('Please enter a title.'); setBusy(false); return; }
     try { editing ? await updateCampaign(campaign!.id, body) : await createCampaign(body); onDone(); }
@@ -810,6 +818,15 @@ function CampaignForm({ campaign, accounts, currency, masjidName, masjidLogo, sh
       <label className="check-row"><input type="checkbox" checked={allowCustom} onChange={(e) => setAllowCustom(e.target.checked)} /><span>Allow donors to enter their own amount</span></label>
       <label className="check-row"><input type="checkbox" checked={coverFees} onChange={(e) => setCoverFees(e.target.checked)} /><span>Offer donors the option to cover card fees</span></label>
       <label className="check-row"><input type="checkbox" checked={allowMonthly} onChange={(e) => setAllowMonthly(e.target.checked)} /><span>Offer a monthly (recurring) option</span></label>
+      {/* Per-campaign thank-you override — empty fields inherit the global "Thank-you" tab. */}
+      <details className="ty-override" open={tyOpen} onToggle={(e) => setTyOpen((e.target as HTMLDetailsElement).open)}>
+        <summary className="check-row" style={{ cursor: 'pointer' }}><HeartHandshake size={15} /><span>Custom thank-you for this campaign (optional)</span></summary>
+        <div style={{ marginBlockStart: '0.6rem' }}>
+          <p className="hint" style={{ marginBlockStart: 0 }}>Leave a field blank to use your default thank-you. Variables: {'{name}'}, {'{amount}'}, {'{campaign}'}, {'{masjid}'}.</p>
+          {tyOpen && <ThankYouPreview value={{ heading: thankYou.heading || tyDefault?.heading || '', message: thankYou.message || tyDefault?.message || '', backgroundImage: thankYou.backgroundImage || tyDefault?.backgroundImage || '', accent: thankYou.accent || tyDefault?.accent || '' }} masjidName={masjidName} currency={currency} />}
+          <ThankYouFields value={thankYou} onChange={setThankYou} placeholders={tyDefault ?? undefined} />
+        </div>
+      </details>
       <label className="check-row"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span>Live (visible to donors)</span></label>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="row-between" style={{ marginBlockStart: '0.4rem' }}>
@@ -1075,6 +1092,86 @@ function Notifications({ embedded }: { embedded: boolean }) {
         <button className="btn btn--sm" onClick={test} disabled={busy}>{busy ? <span className="spinner" /> : <Bell size={15} />} Send test</button>
       </div>
       {(text || error) && <p className={error ? 'form-error' : 'hint'} role="status" style={{ marginBlockStart: '0.6rem' }}>{error || text}</p>}
+    </section>
+  );
+}
+
+// ── Thank-you editor (global default + per-campaign override) ────────────────
+const TY_VARS = ['{name}', '{amount}', '{campaign}', '{masjid}'];
+const TY_EMPTY: ThankYou = { heading: '', message: '', backgroundImage: '', accent: '' };
+
+/** Substitute the thank-you variables for the live preview (mirrors the donor page). */
+function fillVars(tpl: string, v: { name: string; amount: string; campaign: string; masjid: string }): string {
+  let out = tpl;
+  if (!v.name.trim()) out = out.replace(/,?\s*\{name\}\s*,?/g, ' ');
+  out = out.replace(/\{name\}/g, v.name).replace(/\{amount\}/g, v.amount).replace(/\{campaign\}/g, v.campaign).replace(/\{masjid\}/g, v.masjid);
+  return out.replace(/\s{2,}/g, ' ').replace(/\s+([!?.,])/g, '$1').trim();
+}
+
+const tyAccent = (a: string) => (/^#[0-9a-fA-F]{3,8}$/.test(a.trim()) ? a.trim() : '');
+
+/** Live preview of the thank-you screen, with sample variable values filled in. */
+function ThankYouPreview({ value, masjidName, currency }: { value: ThankYou; masjidName: string; currency: string }) {
+  const vars = { name: 'Aisha', amount: money(50, currency || 'USD'), campaign: 'General Fund', masjid: masjidName || 'Your Masjid' };
+  const bg = safeImg(value.backgroundImage);
+  const accent = tyAccent(value.accent);
+  const readable = useReadableTheme(bg || undefined, 'dark');
+  return (
+    <div className="cprev" data-theme={readable} aria-label="Thank-you preview">
+      <div className={`cprev-bg${bg ? '' : ' cprev-bg--default'}`} style={bg ? { backgroundImage: `url("${bg}")` } : undefined} />
+      <div className="cprev-card glass-raised">
+        <div className="cprev-emblem" aria-hidden="true" style={accent ? { color: accent } : undefined}><HeartHandshake size={18} /></div>
+        <div className="cprev-title" style={accent ? { color: accent } : undefined}>{fillVars(value.heading || 'JazākAllāhu khayran!', vars)}</div>
+        <p className="cprev-desc">{fillVars(value.message || 'Your donation was received. May Allah accept it and reward you.', vars)}</p>
+      </div>
+    </div>
+  );
+}
+
+/** The editable fields shared by the global default and the per-campaign override. */
+function ThankYouFields({ value, onChange, placeholders }: { value: ThankYou; onChange: (v: ThankYou) => void; placeholders?: ThankYou }) {
+  const set = (patch: Partial<ThankYou>) => onChange({ ...value, ...patch });
+  return (
+    <>
+      <Field id="ty-h" label="Heading"><input id="ty-h" className="input" value={value.heading} placeholder={placeholders?.heading || 'JazākAllāhu khayran, {name}!'} onChange={(e) => set({ heading: e.target.value })} /></Field>
+      <Field id="ty-m" label="Message"><textarea id="ty-m" className="input" rows={3} value={value.message} placeholder={placeholders?.message || 'Your donation of {amount} to {campaign} was received…'} onChange={(e) => set({ message: e.target.value })} /></Field>
+      <div className="row" style={{ gap: '0.35rem', flexWrap: 'wrap', margin: '-0.2rem 0 0.6rem' }}>
+        <span className="hint" style={{ alignSelf: 'center' }}>Insert:</span>
+        {TY_VARS.map((v) => <button key={v} type="button" className="btn btn--ghost btn--sm mono" onClick={() => set({ message: `${value.message}${value.message && !value.message.endsWith(' ') ? ' ' : ''}${v}` })}>{v}</button>)}
+      </div>
+      <ImageField id="ty-bg" label="Background image (optional)" hint="Shown behind the thank-you. Empty uses the donation page's background." value={value.backgroundImage} onChange={(bg) => set({ backgroundImage: bg })} />
+      <Field id="ty-a" label="Accent colour (optional)"><input id="ty-a" className="input mono" value={value.accent} placeholder="#1FA37A" onChange={(e) => set({ accent: e.target.value })} /></Field>
+    </>
+  );
+}
+
+/** The global default thank-you editor (its own dock tab). */
+function ThankYouCard({ masjidName, currency }: { masjidName: string; currency: string }) {
+  const [value, setValue] = useState<ThankYou | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { getThankYou().then(setValue).catch(() => setError('Couldn’t load the thank-you message.')); }, []);
+  if (!value) return <section className="glass panel"><span className="spinner" aria-label="Loading" /></section>;
+  const save = async () => {
+    setBusy(true); setError('');
+    try { setValue(await saveThankYou(value)); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    catch (e) { setError(msg(e)); } finally { setBusy(false); }
+  };
+  return (
+    <section className="glass panel">
+      <div className="card-head">
+        <HeartHandshake size={18} className="panel-ico" aria-hidden="true" />
+        <div className="card-head__main">
+          <h2 className="section-title-inline">Thank-you message</h2>
+          <p className="muted">Shown right after a donation. Use {'{name}'}, {'{amount}'}, {'{campaign}'} and {'{masjid}'} to personalise it — a campaign can override this on its own editor.</p>
+        </div>
+      </div>
+      <div className="cprev-head"><span className="hint">Live preview</span></div>
+      <ThankYouPreview value={value} masjidName={masjidName} currency={currency} />
+      <ThankYouFields value={value} onChange={setValue} />
+      {error && <p className="form-error">{error}</p>}
+      <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? <span className="spinner" /> : <CheckCircle2 size={16} />} {saved ? 'Saved' : 'Save thank-you'}</button>
     </section>
   );
 }

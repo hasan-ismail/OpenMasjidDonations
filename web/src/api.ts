@@ -138,6 +138,15 @@ export interface Settings {
   onboarded: boolean;
 }
 
+/** Post-donation thank-you content. heading/message support {name} {amount} {campaign}
+ *  {masjid}. As a per-campaign override, an empty field inherits the global default. */
+export interface ThankYou {
+  heading: string;
+  message: string;
+  backgroundImage: string;
+  accent: string;
+}
+
 export interface Campaign {
   id: string;
   slug: string;
@@ -158,6 +167,8 @@ export interface Campaign {
   goalAmount: number;
   active: boolean;
   sortOrder: number;
+  /** Per-campaign thank-you override (empty fields inherit the global default). */
+  thankYou: ThankYou;
   createdAt: string;
   raised: number;
   currency: string;
@@ -228,6 +239,11 @@ export const saveMasjid = (patch: Partial<MasjidProfile>) =>
   request<MasjidProfile>('/api/settings/masjid', { method: 'PUT', body: JSON.stringify(patch) });
 export const completeOnboarding = () => request<{ ok: true }>('/api/settings/complete-onboarding', { method: 'POST' });
 
+// Global default thank-you screen (per-campaign overrides live on the campaign).
+export const getThankYou = () => request<ThankYou>('/api/admin/thankyou');
+export const saveThankYou = (patch: Partial<ThankYou>) =>
+  request<ThankYou>('/api/admin/thankyou', { method: 'PUT', body: JSON.stringify(patch) });
+
 export type AccountInput = { label?: string; publishableKey?: string; secretKey?: string; webhookSecret?: string };
 export const listAccounts = () => request<StripeAccount[]>('/api/admin/stripe-accounts');
 export const createAccount = (body: AccountInput) =>
@@ -293,6 +309,7 @@ export interface PublicCampaign {
   currency: string;
   masjidName: string;
   masjidLogo: string;
+  thankYou: ThankYou; // resolved (campaign override over global default)
   publishableKey: string;
   ready: boolean;
 }

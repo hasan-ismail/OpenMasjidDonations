@@ -55,10 +55,14 @@ export function DonatePage({ slug, token }: { slug: string; token?: string }) {
   const [intent, setIntent] = useState<IntentResponse | null>(null);
   const [result, setResult] = useState<ConfirmResponse | null>(null);
 
+  // On the thank-you screen, prefer the thank-you's own background (when set); otherwise
+  // the campaign's. The scene + readable theme both follow whatever is actually shown.
+  const activeBg = (result && campaign?.thankYou?.backgroundImage) || campaign?.backgroundImage;
+
   // The public donation page is its own world: pin the scene to the default wallpaper
-  // (never the dashboard's inherited one) and pick a theme that reads on the campaign's
+  // (never the dashboard's inherited one) and pick a theme that reads on the active
   // background — light text on dark images, dark text on light ones, as readable as can be.
-  const readable = useReadableTheme(bgUrl(campaign?.backgroundImage) || undefined, 'dark');
+  const readable = useReadableTheme(bgUrl(activeBg) || undefined, 'dark');
   useEffect(() => {
     const html = document.documentElement;
     const prevW = html.getAttribute('data-wallpaper');
@@ -84,6 +88,9 @@ export function DonatePage({ slug, token }: { slug: string; token?: string }) {
     const params = new URLSearchParams(location.search);
     const pi = params.get('payment_intent');
     if (pi) {
+      // Also load the campaign so the thank-you screen shows the masjid's custom message
+      // / accent / background even on this redirect-return path (not just the inline flow).
+      getPublicCampaign(slug, token).then(setCampaign).catch(() => {});
       confirmDonation({ paymentIntentId: pi, slug, token })
         .then((r) => {
           setResult(r);
@@ -99,10 +106,10 @@ export function DonatePage({ slug, token }: { slug: string; token?: string }) {
 
   return (
     <div className="shell">
-      <DonateScene image={campaign?.backgroundImage} />
+      <DonateScene image={activeBg} />
       <main className="donate-wrap">
         {result ? (
-          <ThankYou result={result} />
+          <ThankYou result={result} campaign={campaign} />
         ) : loadError ? (
           <section className="glass-raised donate-card">
             <div className="donate-emblem" aria-hidden="true"><HeartHandshake size={30} /></div>
@@ -375,19 +382,45 @@ function PayForm({
   );
 }
 
-function ThankYou({ result }: { result: ConfirmResponse }) {
+/** Substitute the thank-you variables. When {name} is empty, an adjacent comma/space is
+ *  cleaned up so "Thank you, {name}!" reads "Thank you!" rather than "Thank you, !". */
+function fillVars(tpl: string, v: { name: string; amount: string; campaign: string; masjid: string }): string {
+  let out = tpl;
+  if (!v.name.trim()) out = out.replace(/,?\s*\{name\}\s*,?/g, ' ');
+  out = out
+    .replace(/\{name\}/g, v.name)
+    .replace(/\{amount\}/g, v.amount)
+    .replace(/\{campaign\}/g, v.campaign)
+    .replace(/\{masjid\}/g, v.masjid);
+  return out.replace(/\s{2,}/g, ' ').replace(/\s+([!?.,])/g, '$1').trim();
+}
+
+function ThankYou({ result, campaign }: { result: ConfirmResponse; campaign: PublicCampaign | null }) {
   const ok = result.succeeded;
+  const t = campaign?.thankYou;
+  const vars = {
+    name: result.donorName || '',
+    amount: money(result.amount, result.currency),
+    campaign: result.campaignTitle,
+    masjid: campaign?.masjidName || '',
+  };
+  // Accent override (a hex like #1FA37A) tints the emblem + heading on success.
+  const accent = ok && t?.accent && /^#[0-9a-fA-F]{3,8}$/.test(t.accent.trim()) ? t.accent.trim() : '';
+  // Fill the template, then fall back if it resolved to empty (e.g. a heading of just "{name}"
+  // with no donor name). For non-success states the heading is fixed.
+  const heading = ok ? fillVars(t?.heading || 'JazākAllāhu khayran!', vars) || 'JazākAllāhu khayran!' : 'Thank you';
+  const message = fillVars(t?.message || 'Your donation of {amount} to {campaign} was received. May Allah accept it and reward you.', vars) || 'May Allah accept it and reward you.';
   return (
-    <section className="glass-raised donate-card donate-thanks">
-      <div className={`donate-emblem${ok ? ' is-success' : ''}`} aria-hidden="true">
+    <section className="glass-raised donate-card donate-thanks" style={accent ? ({ ['--color-accent' as string]: accent }) : undefined}>
+      <div className={`donate-emblem${ok ? ' is-success' : ''}`} aria-hidden="true" style={accent ? { color: accent } : undefined}>
         <HeartHandshake size={34} />
       </div>
-      <h1 className="donate-title">{ok ? 'JazākAllāhu khayran!' : 'Thank you'}</h1>
+      <h1 className="donate-title" style={accent ? { color: accent } : undefined}>{heading}</h1>
       {ok ? (
-        <p className="donate-desc">
-          Your {result.recurring ? <><b>monthly</b> donation of <b>{money(result.amount, result.currency)}</b></> : <>donation of <b>{money(result.amount, result.currency)}</b></>} to <b>{result.campaignTitle}</b> {result.recurring ? 'is set up' : 'was received'}.
-          May Allah accept it and reward you.
-        </p>
+        <>
+          <p className="donate-desc">{message}</p>
+          {result.recurring && <p className="donate-desc"><b>This is a monthly donation</b> — it'll repeat automatically until you cancel.</p>}
+        </>
       ) : result.status === 'processing' ? (
         <p className="donate-desc">Your payment is processing. You’ll receive confirmation shortly, in shā’ Allah.</p>
       ) : (
