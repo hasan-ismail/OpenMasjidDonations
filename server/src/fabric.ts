@@ -327,6 +327,46 @@ export function cachedFabricStripe(): FabricStripeAccount | null {
   return stripeCache?.value ?? stripeLastGood?.value ?? null;
 }
 
+/** A non-secret reference to a vaulted Stripe account, for the in-app account picker. */
+export interface FabricStripeAccountRef {
+  id: string;
+  label: string;
+}
+
+/**
+ * List the masjid's Stripe accounts from the OS vault (id + label only, NEVER keys) so the
+ * admin can pick one on the app's own Payments screen — the recommended pattern that keeps
+ * install one-click (no STRIPE_ACCOUNT setting). Server→server, fail-soft → [] when the
+ * Fabric isn't configured, the platform is unreachable, or it's an older platform without
+ * the endpoint (v0.33.0+). Never throws.
+ */
+export async function fetchFabricStripeAccounts(): Promise<FabricStripeAccountRef[]> {
+  if (!config.omosBaseUrl || !config.omosAppSecret) return [];
+  warnIfCleartextSecret();
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`${config.omosBaseUrl}/api/fabric/stripe/accounts`, {
+      headers: { 'x-openmasjid-app-secret': config.omosAppSecret },
+      signal: ctrl.signal,
+      redirect: 'error',
+    });
+    clearTimeout(t);
+    if (!res.ok) return [];
+    const j = (await res.json().catch(() => null)) as { accounts?: unknown } | null;
+    const list = Array.isArray(j?.accounts) ? j!.accounts : [];
+    return list
+      .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object' && typeof (a as { id?: unknown }).id === 'string')
+      .map((a) => ({
+        id: String(a.id),
+        label: typeof a.label === 'string' && a.label ? a.label.slice(0, 80) : String(a.id),
+      }));
+  } catch (err) {
+    log.debug(`Fabric stripe accounts list failed: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
+  }
+}
+
 // ── Remote access / public URL via the Fabric (manifest `domain: true`) ─────────
 // The admin runs a Cloudflare Tunnel once in OpenMasjidOS (Settings → Remote access);
 // every app is reached on one hostname under an admin-chosen path (default the app id),

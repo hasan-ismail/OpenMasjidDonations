@@ -14,10 +14,11 @@ import {
 } from 'lucide-react';
 import {
   checkSlug, completeOnboarding, createAccount, createCampaign, deleteAccount, deleteCampaign, getDonations,
-  getMetrics, getSession, getSettings, getTunnel, listCampaigns, login, logout, money, saveMasjid, saveTunnel,
+  getFabricStripeAccounts, getMetrics, getSession, getSettings, getTunnel, listCampaigns, login, logout, money,
+  saveFabricStripeAccount, saveMasjid, saveTunnel,
   sendTestNotification, setupAdmin, testAccount, updateAccount, updateCampaign, uploadImage,
   type AccountInput, type AppInfo, type Campaign, type CampaignInput, type Donation, type DonationsResult,
-  type FabricStripeStatus, type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
+  type FabricStripeAccountRef, type FabricStripeStatus, type MasjidProfile, type Metrics, type Session, type Settings, type StripeAccount, type TunnelStatus, type VerifyResult,
 } from './api';
 import { useReadableTheme } from './prefs';
 import { BASE, asset, withBase } from './base';
@@ -419,6 +420,28 @@ function ModeBadge({ a }: { a: StripeAccount }) {
   return null;
 }
 
+/** In-app picker for which OpenMasjidOS-vault Stripe account this app uses. Lists the
+ *  masjid's accounts (no keys) and saves the chosen id. Renders nothing until the list
+ *  loads, and nothing if none are configured (the "Set up in OpenMasjidOS" prompt shows). */
+function FabricAccountPicker({ chosenId, onSaved }: { chosenId: string; onSaved: () => void }) {
+  const [accounts, setAccounts] = useState<FabricStripeAccountRef[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { getFabricStripeAccounts().then((r) => setAccounts(r.accounts)).catch(() => setAccounts([])); }, []);
+  if (accounts === null) return <p className="hint" style={{ marginTop: '0.5rem' }}>Loading your OpenMasjidOS accounts…</p>;
+  if (accounts.length === 0) return null; // none yet → the status pill already says "Set up in OpenMasjidOS"
+  const pick = async (id: string) => { setSaving(true); try { await saveFabricStripeAccount(id); onSaved(); } catch { /* keep current */ } finally { setSaving(false); } };
+  return (
+    <div className="field" style={{ marginTop: '0.6rem' }}>
+      <label className="label" htmlFor="fab-acct">Which account to use</label>
+      <select id="fab-acct" className="input" value={chosenId} disabled={saving} onChange={(e) => pick(e.target.value)}>
+        {accounts.length > 1 && <option value="">First / only account</option>}
+        {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+      </select>
+      <span className="hint">Accounts come from OpenMasjidOS → Settings → Payments. Switching takes effect right away.</span>
+    </div>
+  );
+}
+
 function StripeAccountsCard({ accounts, fabric, publicBase, embedded, onChanged }: { accounts: StripeAccount[]; fabric?: FabricStripeStatus; publicBase?: string; embedded?: boolean; onChanged: () => void }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState('');
@@ -471,6 +494,7 @@ function StripeAccountsCard({ accounts, fabric, publicBase, embedded, onChanged 
               </div>
             </div>
           </div>
+          <FabricAccountPicker chosenId={fabric?.chosenId ?? ''} onSaved={onChanged} />
           <button className="btn btn--ghost btn--sm" onClick={() => setShowLocal((v) => !v)}>
             {showLocal ? 'Hide' : 'Use a Stripe account stored on this device instead'}
           </button>

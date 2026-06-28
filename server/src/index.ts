@@ -20,7 +20,7 @@ import { makeLog } from './logger';
 import { Store, slugify, rid, RESERVED_SLUGS } from './store';
 import type { Campaign, StripeAccount, StripeConfig } from './store';
 import { COOKIE, cookieOptions, hashPassword, makeToken, verifyPassword, verifyToken, SSO_SESSION_MS } from './auth';
-import { notify, probePlatform, fetchFabricStripe, cachedFabricStripe, fetchFabricSite, cachedFabricSite } from './fabric';
+import { notify, probePlatform, fetchFabricStripe, cachedFabricStripe, fetchFabricStripeAccounts, fetchFabricSite, cachedFabricSite } from './fabric';
 import { LoginLimiter } from './rateLimit';
 import { TunnelManager } from './tunnel';
 import {
@@ -291,10 +291,11 @@ async function main(): Promise<void> {
   type ResolvedAccount = StripeConfig & { id: string; label: string };
 
   /** The platform-vaulted Stripe account for this app, or null when not embedded /
-   *  unreachable / not set up in OpenMasjidOS. */
+   *  unreachable / not set up in OpenMasjidOS. Uses the account the admin picked on the
+   *  in-app Payments screen (store choice; '' = the only/first vault account). */
   const fabricAccount = async (): Promise<ResolvedAccount | null> => {
     if (!ssoConfigured()) return null;
-    return await fetchFabricStripe(config.stripeAccount);
+    return await fetchFabricStripe(store.getFabricStripeChoice());
   };
 
   /** The effective Stripe account a campaign should charge through: the Fabric vault
@@ -351,9 +352,10 @@ async function main(): Promise<void> {
    *  screen can show "using your OpenMasjidOS account" instead of asking for keys).
    *  Never includes secrets — only the publishable key + booleans (publicStripeStatus). */
   const fabricStripeStatus = async () => {
+    const chosen = store.getFabricStripeChoice();
     const a = await fabricAccount();
-    if (!a) return { available: false as const };
-    return { available: true as const, id: a.id, label: a.label, accountName: config.stripeAccount, ...publicStripeStatus(a) };
+    if (!a) return { available: false as const, chosenId: chosen };
+    return { available: true as const, id: a.id, label: a.label, chosenId: chosen, ...publicStripeStatus(a) };
   };
 
   // ── Settings: masjid details + onboarding (Stripe accounts have own routes) ──
@@ -481,6 +483,19 @@ async function main(): Promise<void> {
     const acct = store.getStripeAccount((req.params as { id: string }).id);
     if (!acct || !acct.secretKey) return { data: { ok: false, message: 'Add a secret key first.' } };
     return { data: await verifySecretKey(acct.secretKey) };
+  });
+
+  // ── In-app picker for the OpenMasjidOS-vault Stripe account (Fabric, embedded) ──
+  // Lists the masjid's vault accounts (id + label, NEVER keys) so the admin can choose
+  // one on the Payments screen — keeps install one-click (no STRIPE_ACCOUNT setting).
+  app.get('/api/admin/stripe/fabric-accounts', { preHandler: requireAdmin }, async () => ({
+    data: { accounts: await fetchFabricStripeAccounts(), chosenId: store.getFabricStripeChoice() },
+  }));
+  app.put('/api/admin/stripe/fabric-account', { preHandler: requireAdmin }, async (req, reply) => {
+    const parsed = z.object({ accountId: z.string().max(120) }).safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Please choose an account.' });
+    store.setFabricStripeChoice(parsed.data.accountId.trim());
+    return { data: await fabricStripeStatus() };
   });
 
   // ── Campaigns (admin CRUD) ──────────────────────────────────────────────────

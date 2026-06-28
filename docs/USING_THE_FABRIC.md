@@ -21,10 +21,8 @@ notifications: true  # relay "new donation" alerts to the masjid's webhook
 stripe: true         # fetch shared Stripe keys from the OS vault  (v0.29.0+)
 domain: true         # learn the public URL for return/webhook/QR  (v0.30.0+)
 https: true          # Stripe needs a secure context
-settings:
-  - key: STRIPE_ACCOUNT
-    label: Which Stripe account (the name you gave it in OpenMasjidOS → Settings → Payments)
-    type: text
+# NO `settings:` block — install is one-click (no popup). The Stripe account is
+# chosen INSIDE the app (admin Payments screen), see §4.
 ```
 
 ## 1. Single sign-on (already implemented — keep it)
@@ -42,21 +40,29 @@ Match the dashboard's theme/wallpaper via the `#omos=` hash + `GET /api/public/a
 Relay a "new donation of £50" alert: `POST ${OPENMASJID_BASE_URL}/api/fabric/notify` with the app
 secret + `{ text, title?, level? }`. Fails soft; never depend on it.
 
-## 4. Stripe keys from the OS vault — `stripe: true`
+## 4. Stripe keys from the OS vault — `stripe: true` (chosen IN-APP, no install setting)
 
-The admin stores named Stripe accounts once in **Settings → Payments**; fetch the one this app uses
-instead of storing your own:
+The admin stores named Stripe accounts once in **Settings → Payments**. **Do NOT collect the account
+at install** (no `STRIPE_ACCOUNT` setting → no install popup). Instead, on your **admin Payments
+screen**, list the accounts and let the admin pick one, persist the chosen **id** in your own data,
+then fetch that account's keys:
 
 ```ts
-// server→server. { id, label, publishableKey, secretKey, webhookSecret }
-const r = await fetch(
-  `${config.omosBaseUrl}/api/fabric/stripe?account=${encodeURIComponent(process.env.STRIPE_ACCOUNT ?? '')}`,
-  { headers: { 'x-openmasjid-app-secret': config.omosAppSecret }, redirect: 'error' },
-);
+// 1) List accounts (no secrets) for your in-app picker:  { accounts: [{ id, label }] }
+const list = await (await fetch(`${config.omosBaseUrl}/api/fabric/stripe/accounts`,
+  { headers: { 'x-openmasjid-app-secret': config.omosAppSecret }, redirect: 'error' })).json();
+
+// 2) After the admin picks one (store `chosenId` in db.json), fetch ITS keys:
+//    { id, label, publishableKey, secretKey, webhookSecret }
+const acct = await (await fetch(
+  `${config.omosBaseUrl}/api/fabric/stripe?account=${encodeURIComponent(chosenId)}`,
+  { headers: { 'x-openmasjid-app-secret': config.omosAppSecret }, redirect: 'error' })).json();
 ```
 
 Use `secretKey` for charges, `publishableKey` for the client, `webhookSecret` for signature checks.
-**Cache in memory only.** Keep your local Stripe fields as the standalone fallback (Fabric absent).
+**Cache the keys in memory only** (never persist secretKey/webhookSecret). It's fine to persist the
+chosen account **id**. Keep your local Stripe fields as the standalone fallback (Fabric absent), and if
+no account is chosen yet, fall back to the only/first account (omit `?account=`).
 
 ## 5. Public URL + base path — `domain: true`
 

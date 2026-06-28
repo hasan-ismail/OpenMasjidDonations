@@ -152,3 +152,22 @@ aware on **both** ends:
 Standalone (or remote access off), `basePath`/`publicUrl` are empty and everything behaves
 exactly as before (root paths, this device's address); the in-app Cloudflare tunnel
 (`tunnel.ts`) stays only as the standalone fallback.
+
+## In-app Stripe account picker + one-route remote access (v0.19.0)
+
+Two Fabric refinements, tracking OpenMasjidOS v0.33.0 / v0.37.0:
+
+- **In-app Stripe picker (no install setting).** The manifest declares no `settings`, so
+  install stays one-click. On the admin Payments screen (when embedded) the app lists the
+  masjid's vault accounts via `GET /api/fabric/stripe/accounts` (id + label, never keys —
+  `fabric.ts` `fetchFabricStripeAccounts`), the admin picks one, and the chosen **id** is
+  persisted (`store.getFabricStripeChoice`/`set`, kv key `fabric_stripe_account`; seeded
+  from the `STRIPE_ACCOUNT` env for advanced installs). `fabricAccount()` fetches that
+  account's keys (`GET /api/fabric/stripe?account=<id>`); blank = the only/first account.
+  Keys stay in memory only; only the id is stored.
+- **Remote access is now ONE Cloudflare route** (OS v0.37.0): the admin adds a single
+  `omos.<domain>` hostname and the OS front door reverse-proxies each app path to its
+  container, forwarding the **full path** unstripped. This needs **no app change** — our
+  existing base-path handling (rewriteUrl strip + injected `<base href>`) already serves it.
+  Cloudflare terminates TLS, so the donor's browser sees `https://` (Stripe Elements works)
+  while the OS proxies to our plain-HTTP container. See `docs/REMOTE_ACCESS_INGRESS.md`.

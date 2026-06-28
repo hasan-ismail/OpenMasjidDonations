@@ -347,6 +347,17 @@ export class Store {
     return merged;
   }
 
+  /** The admin-chosen OpenMasjidOS-vault Stripe account id (picked on the in-app Payments
+   *  screen from GET /api/fabric/stripe/accounts). '' = use the only/first vault account.
+   *  Storing the id is fine (it is NOT a secret); the keys are always fetched fresh from
+   *  the Fabric. Seeded from the STRIPE_ACCOUNT env for advanced/older installs. */
+  getFabricStripeChoice(): string {
+    return this.getRaw('fabric_stripe_account') ?? config.stripeAccount ?? '';
+  }
+  setFabricStripeChoice(id: string): void {
+    this.setRaw('fabric_stripe_account', id);
+  }
+
   /** Cached Stripe Product id per account + mode (test/live), for recurring prices. */
   getStripeProduct(accountId: string, mode: string): string | null {
     return this.getRaw(`stripe_product:${accountId}:${mode}`);

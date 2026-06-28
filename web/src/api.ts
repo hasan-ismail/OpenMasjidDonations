@@ -106,18 +106,29 @@ export interface StripeAccount {
 export type SaveAccountResult = StripeAccount & { verify?: VerifyResult };
 
 /** Non-secret status of the platform-vaulted Stripe account (when embedded under
- *  OpenMasjidOS with the Stripe Fabric). `available` false = standalone / not set up. */
+ *  OpenMasjidOS with the Stripe Fabric). `available` false = standalone / not set up.
+ *  `chosenId` is the account the admin picked in-app ('' = the only/first vault account). */
 export interface FabricStripeStatus {
   available: boolean;
   id?: string;
   label?: string;
-  accountName?: string;
+  chosenId?: string;
   publishableKey?: string;
   hasSecretKey?: boolean;
   hasWebhookSecret?: boolean;
   mode?: StripeMode;
   configured?: boolean;
   keysMismatch?: boolean;
+}
+
+/** A non-secret reference to a vaulted Stripe account, for the in-app picker. */
+export interface FabricStripeAccountRef {
+  id: string;
+  label: string;
+}
+export interface FabricStripeAccountsResult {
+  accounts: FabricStripeAccountRef[];
+  chosenId: string;
 }
 
 export interface Settings {
@@ -227,6 +238,12 @@ export const deleteAccount = (id: string) =>
   request<{ ok: true }>(`/api/admin/stripe-accounts/${id}`, { method: 'DELETE' });
 export const testAccount = (id: string) =>
   request<VerifyResult>(`/api/admin/stripe-accounts/${id}/test`, { method: 'POST' });
+
+// In-app picker for the OpenMasjidOS-vault Stripe account (embedded). List = id+label only.
+export const getFabricStripeAccounts = () =>
+  request<FabricStripeAccountsResult>('/api/admin/stripe/fabric-accounts');
+export const saveFabricStripeAccount = (accountId: string) =>
+  request<FabricStripeStatus>('/api/admin/stripe/fabric-account', { method: 'PUT', body: JSON.stringify({ accountId }) });
 
 // ── Campaigns (admin) ───────────────────────────────────────────────────────
 export const listCampaigns = () => request<Campaign[]>('/api/admin/campaigns');
